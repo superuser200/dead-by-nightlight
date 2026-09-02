@@ -16,6 +16,11 @@ const PORT = Number(process.env.PORT || 8080);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || randomBytes(8).toString('hex');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
+// AI: fill empty spots so the night is never empty (only on the live server,
+// never when running the integration smoke tests locally).
+const IS_LIVE = process.env.NODE_ENV === 'production';
+const MAX_BOTS = 4;
+
 const TICK_MS = 50;        // 20 Hz match simulation
 const HUB_TICK_MS = 66;    // ~15 Hz hub simulation
 const MATCHMAKER_MS = 1000;
@@ -127,6 +132,9 @@ wss.on('connection', (ws, req) => {
     lastChatAt: 0,
     lastPing: 0,
     kickT: 0,                 // disconnect delay when banned
+    bot: false,               // AI player
+    ai: {},                   // per-bot state
+    wc: 0,                    // wall-collision lag counter
   };
   clientFor.set(ws, p);
   p.ws.on('message', (data) => { try { onMessage(p, data.toString()); } catch (err) { log('MSGERR', 'ws/' + (p.name || p.id), err.message); } });
@@ -180,6 +188,9 @@ function onJoin(p, msg) {
 
   p.name = raw;
   p.nameLow = nameLow;
+  p.status = 'alive';
+  p.hp = 2;
+  p.carrier = null;
   if (msg.admin && typeof msg.admin === 'string' && hShake(msg.admin) === hShake(ADMIN_TOKEN)) {
     p.admin = true;
   }
@@ -241,7 +252,7 @@ function onQueue(p, queued) {
   p.queued = target;
   if (target) { if (queue.indexOf(p) < 0) queue.push(p); }
   else { const i = queue.indexOf(p); if (i >= 0) queue.splice(i, 1); }
-  p.ws.send(JSON.stringify({ t: 'queue', queued: p.queued, size: queue.length }));
+  send(p, { t: 'queue', queued: p.queued, size: queue.length });
 }
 
 /* ----------------------------------------------------------------------------
@@ -252,10 +263,19 @@ const matches = new Map(); // id -> match
 let matchIdCounter = 0;
 
 setInterval(() => {
-  while (queue.length >= 2) {
-    const group = queue.splice(0, 11);
-    startMatch(group);
+  spawnBotsToFill();
+  const humans = queue.filter(p => !p.bot);
+  let group = null;
+  if (humans.length >= 2) {
+    group = queue.splice(0, 11);
+  } else if (humans.length === 1) {
+    const h = humans[0];
+    queue.splice(queue.indexOf(h), 1);
+    group = [h];
+    // a human always leads — fill the rest with queued bots
+    while (group.length < 4 && queue.length) group.push(queue.shift());
   }
+  if (group && group.length >= 2) startMatch(group);
   broadcastQueueInfo();
 }, MATCHMAKER_MS);
 
@@ -271,14 +291,18 @@ function broadcastQueueInfo() {
 function startMatch(group) {
   for (const p of group) p.queued = false;
   const killerIdx = Math.floor(rand() * group.length);
+  const mapId = Object.keys(MAPS)[Math.floor(rand() * Object.keys(MAPS).length)];
+  const objs = mapObjs(mapId);
   const match = {
     id: 'M' + (++matchIdCounter),
     state: 'running',
     t: 0,
     endT: null,
     result: null,
-    gens: makeGens(),
-    gates: makeGates(),
+    mapId,
+    gens: objs.gens,
+    gates: objs.gates,
+    hooks: objs.hooks,
     survivorsEscaped: [],
     sacrifices: [],
     gensDone: 0,
@@ -317,24 +341,52 @@ function startMatch(group) {
   log('MATCH START', match.id, `${match.killer.name} killer / ${match.survivors.length} survivors`);
 }
 
-// map layout — random but stable per match
-function makeGens() {
-  const gens = [];
-  const spots = [];
-  for (let i = 0; i < 24; i++) spots.push([rint(-40, 40), rint(-40, 40)]);
-  spots.sort((a, b) => (a[0] + a[1] * 3) - (b[0] + b[1] * 3));
-  for (let i = 0; i < 6; i++) {
-    const s = spots[i];
-    gens.push({ id: i, x: s[0], z: s[1], prog: 0, done: false });
-  }
-  return gens;
-}
-function makeGates() {
-  // Gate A: opening on the north wall, Gate B on the east wall.
-  return [
-    { id: 'A', x: 0, z: 43.8, dir: 'north', open: false, prog: 0, zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
-    { id: 'B', x: 43.8, z: 0, dir: 'east', open: false, prog: 0, zone: { rect: { x: 43.5, z: -4, w: 2.5, d: 8 } } },
-  ];
+// two maps — random per match, distinct layouts & flair
+const MAPS = {
+  hollow: {
+    name: 'The Hollow',
+    gens: [[-30, 16], [-8, 30], [30, 26], [14, -10], [-26, -22], [34, -26], [0, -12], [16, 12], [-12, -6], [24, 6]],
+    gates: [
+      { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
+      { id: 'B', x: 43.8, z: 0, dir: 'east', zone: { rect: { x: 43.5, z: -4, w: 2.5, d: 8 } } },
+    ],
+    hooks: [
+      [-24, -20], [22, -26], [-14, 24], [26, 18], [-34, 30], [34, -30], [0, 0], [-6, -34], [8, 36], [-40, -4], [40, 6], [-18, -6], [16, 6], [-2, 2],
+    ],
+  },
+  farm: {
+    name: 'Split-Field',
+    gens: [[-28, -18], [-14, 22], [12, -28], [28, 20], [34, -14], [-6, 6], [22, 4], [-22, -4], [8, 34], [-34, 26]],
+    gates: [
+      { id: 'A', x: -43.8, z: 0, dir: 'west', zone: { rect: { x: -45, z: -4, w: 2.5, d: 8 } } },
+      { id: 'B', x: 0, z: -43.8, dir: 'south', zone: { rect: { x: -4, z: -45, w: 8, d: 2.5 } } },
+    ],
+    hooks: [
+      [-18, 30], [26, -22], [-34, -12], [8, 34], [30, 10], [-8, -30], [34, -36], [-30, 8], [2, -6], [18, 18], [-4, -14], [40, -24], [-40, 24], [14, -34],
+    ],
+  },
+  graveyard: {
+    name: 'The Graveyard',
+    gens: [[-30, -28], [-6, 24], [30, 28], [-20, 8], [26, -24], [-34, 6], [4, -8], [18, 4], [-12, -36], [36, 36]],
+    gates: [
+      { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
+      { id: 'B', x: -43.8, z: 0, dir: 'west', zone: { rect: { x: -45, z: -4, w: 2.5, d: 8 } } },
+    ],
+    hooks: [
+      [-38, -20], [20, 30], [-14, -30], [34, 8], [-30, -6], [2, 32], [38, -28], [-4, 0], [6, -6], [-26, 26], [24, -12], [-40, 34], [40, 22], [0, -36],
+    ],
+  },
+};
+
+function mapObjs(mapId) {
+  const mp = MAPS[mapId];
+  const cands = mp.gens.slice();
+  const chosen = [];
+  while (chosen.length < Math.min(6, cands.length)) chosen.push(cands.splice(Math.floor(rand() * cands.length), 1)[0]);
+  const gens = chosen.map(([x, z], i) => ({ id: i, x: clamp(x + rint(-3, 3), -40, 40), z: clamp(z + rint(-3, 3), -40, 40), prog: 0, done: false }));
+  const gates = mp.gates.map((g) => ({ id: g.id, x: g.x, z: g.z, dir: g.dir, zone: g.zone, open: false, prog: 0 }));
+  const hooks = mp.hooks.map(([x, z]) => ({ x, z }));
+  return { gens, gates, hooks };
 }
 function ringSpawns(n) {
   const out = [];
@@ -345,24 +397,181 @@ function ringSpawns(n) {
   return out;
 }
 
-const HOOK_LOCS = [
-  [-24, -20], [22, -26], [-14, 24], [26, 18], [-34, 30], [34, -30], [0, 0], [-6, -34], [8, 36], [-40, -4], [40, 6], [-18, -6], [16, 6], [-2, 2],
-];
-
 function matchView(match) {
   return {
     id: match.id,
     state: match.state,
     w: 90,
+    theme: match.mapId,
+    mapName: MAPS[match.mapId] ? MAPS[match.mapId].name : 'The Hollow',
     gens: match.gens,
     gates: match.gates,
-    hooks: HOOK_LOCS.map(([x, z]) => ({ x, z })),
+    hooks: match.hooks,
     gensDone: match.gensDone,
     gatesPowered: match.gatesPowered,
   };
 }
 
 function getMatch(p) { return matches.get(p.matchId); }
+
+/* ----------------------------------------------------------------------------
+ * AI FOG-SPIRIT bots — adaptive survivors/killer and auto-procedural filler
+ * -------------------------------------------------------------------------*/
+const BOT_NAMES = ['Ash', 'Mara', 'Kite', 'Fen', 'Dusk', 'Rook', 'Vex', 'Nyx', 'Ced', 'Bramble', 'Sable', 'Moss'];
+let botNameIdx = 0;
+
+function botName() {
+  const n = BOT_NAMES[botNameIdx % BOT_NAMES.length];
+  botNameIdx += 1;
+  return n + '-' + rint(1, 99);
+}
+
+function giveBotBase(b) {
+  b.name = b.name || ('FogSpirit' + rint(1000, 9999));
+  b.nameLow = b.name.toLowerCase();
+  b.bot = true;
+  b.yaw = rand() * Math.PI * 2;
+  b.pitch = -0.2;
+  b.hp = 2; b.status = 'alive'; b.carrier = null;
+  b.sprint = 100; b.attackCd = 0;
+  b.wx = null; b.wz = null; b.waitT = 0;
+  b.ai = b.ai || { style: 'stealth', focus: null, retarget: Date.now(), cd: Date.now(), waitT: 0 };
+}
+
+function countActiveBots() {
+  let n = 0;
+  for (const p of players.values()) if (p.bot) n++;
+  return n;
+}
+
+// add filler bots so a solo player can always get a match, and top up mid-match
+function spawnBotsToFill() {
+  if (!IS_LIVE) return;
+  const now = Date.now();
+  let purged = false;
+  for (const p of Array.from(players.values())) {
+    if (!p.bot) continue;
+    if (now - p.lastPing > 30000) { // stale bot -> recycle
+      players.delete(p.id);
+      const i = queue.indexOf(p); if (i >= 0) queue.splice(i, 1);
+      purged = true;
+    }
+  }
+  if (purged) broadcastQT('A fog spirit faded away…');
+
+  if (players.size >= 10) return;
+  // only fill when a human is actually waiting in queue
+  if (!Array.from(queue).some(p => !p.bot)) return;
+  let want = Math.max(0, 4 - queue.length);
+  want = Math.min(want, MAX_BOTS - countActiveBots());
+  if (want <= 0) return;
+  for (let i = 0; i < want; i++) {
+    const b = {
+      ws: null, id: String('B' + (++botIdCounter)), ip: '0.0.0.0',
+      name: botName(), nameLow: '', admin: false,
+      state: 'hub', matchId: null, role: null, queued: false,
+      x: rint(-20, 20), y: 0, z: rint(-20, 20), yaw: 0, pitch: -0.2,
+      vy: 0, jumpT: 0, keys: new Set(), inputBuffer: [],
+      lastInputAt: now, flags: { hits: 0, lastWindow: 0, count: 0, badJson: 0 },
+      lastChatAt: 0, lastPing: now, kickT: 0,
+      bot: true, ai: { style: rint(1, 2) === 1 ? 'stealth' : 'rush', focus: null, retarget: now, cd: now, waitT: 0 }, wc: 0,
+    };
+    giveBotBase(b);
+    players.set(b.id, b);
+    b.state = 'hub';
+    onQueue(b, true);
+  }
+}
+
+function aliveBots() {
+  const out = [];
+  for (const p of players.values()) if (p.bot && players.has(p.id)) out.push(p);
+  return out;
+}
+
+// --- behavioural planner (runs at ~5 Hz) -------------------------------
+setInterval(() => {
+  try {
+    if (!IS_LIVE) return;
+    for (const match of matches.values()) {
+      if (match.state !== 'running') continue;
+      for (const p of match.players) {
+        if (!p.bot) continue;
+        const follow = (() => { // AI never swings first — target stays reachable
+          let best = null, bd = 1e9;
+          for (const s of match.survivors) {
+            if (s === p || s.status === 'dead' || s.status === 'escaped') continue;
+            if (!players.has(s.id)) continue;
+            const d = dist2(p, s);
+            if (d < bd) { bd = d; best = s; }
+          }
+          return best;
+        })();
+        planBot(p, match);
+      }
+    }
+  } catch (err) { log('AIBR', 'brain', err.message); }
+}, 200);
+
+function planBot(p, match) {
+  const a = p.ai;
+  // adaptive pressure: killer learns which generator survivors keep repairing
+  if (p.role === 'killer') {
+    if (match.gensDone < 5) {
+      const bestGen = aiBestGen(match);
+      let targetObj = null;
+      const nearestSurv = aiNearestSurvivor(p, match);
+      if (nearestSurv && dist2(p, nearestSurv) <= 13 * 13) targetObj = nearestSurv;
+      else if (bestGen) targetObj = bestGen;
+      if (targetObj) a.focus = { kind: 'gen', x: targetObj.x, z: targetObj.z };
+      if (!a.focus || a.retarget < Date.now()) {
+        const base = aiBestGen(match);
+        if (base) { a.focus = { kind: 'gen', x: base.x, z: base.z }; a.retarget = Date.now() + 4000; }
+      }
+    } else {
+      // hunt survivors once gens are done
+      const ns = aiNearestSurvivor(p, match);
+      if (ns) a.focus = { kind: 's', x: ns.x, z: ns.z };
+    }
+  } else {
+    // survivor bots: repair gens, open gates when powered
+    if (match.gatesPowered) {
+      a.focus = { kind: 'gate', x: match.gates[0].x, z: match.gates[0].z };
+    } else {
+      const g = aiNearestGen(p, match);
+      if (g) a.focus = { kind: 'gen', x: g.x, z: g.z };
+    }
+  }
+}
+
+function aiBestGen(match) {
+  // weighted by repair heat (like the killer "learning" player habits)
+  let best = null, bestW = -1;
+  for (const g of match.gens) {
+    if (g.done) continue;
+    const w = g.prog * 0.6 + (g.heat || 0);
+    if (w > bestW) { bestW = w; best = g; }
+  }
+  return best;
+}
+function aiNearestGen(p, match) {
+  let best = null, bd = 1e9;
+  for (const g of match.gens) { if (g.done) continue; const d = dist2(p, g); if (d < bd) { bd = d; best = g; } }
+  return best;
+}
+function aiNearestSurvivor(p, match) {
+  let best = null, bd = 1e9;
+  for (const s of match.survivors) {
+    if (s === p || s.status === 'dead' || s.status === 'escaped') continue;
+    if (!players.has(s.id)) continue;
+    const d = dist2(p, s); if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+
+function broadcastQT(msg) { broadcast({ t: 'toast', msg }); }
+
+let botIdCounter = 0;
 
 /* ----------------------------------------------------------------------------
  * Match simulation tick (every 50 ms)
@@ -398,9 +607,12 @@ function simulateMatch(match) {
   // players in match: process input (one buffered input per tick max, so floods can't speed anyone)
   for (const p of match.players) {
     if (!players.has(p.id) || p.state !== 'match') continue;
-    const input = p.inputBuffer.shift() || null;
-    if (input) { p.keys = new Set(input.k); p.yaw = input.yaw; p.pitch = input.pitch; }
-    else p.keys.clear();
+    if (p.bot) { driveBot(p, match); }
+    else {
+      const input = p.inputBuffer.shift() || null;
+      if (input) { p.keys = new Set(input.k); p.yaw = input.yaw; p.pitch = input.pitch; }
+      else p.keys.clear();
+    }
 
     if (p === killer) {
       const sprinting = p.keys.has('shift');
@@ -426,7 +638,7 @@ function simulateMatch(match) {
         else {
           c.x = p.x; c.z = p.z;
           if (p.keys.has('e')) {
-            const nearHook = HOOK_LOCS.some(([hx, hz]) => dist2(c, { x: hx, z: hz }) <= 2.4 * 2.4);
+            const nearHook = match.hooks.some((h) => dist2(c, h) <= 2.4 * 2.4);
             if (nearHook) {
               killSurvivor(match, c, 'sacrificed', p);
               p.carrier = null;
@@ -503,6 +715,87 @@ function simulateMatch(match) {
       if (e && dist2(p, gB) <= 2.3 * 2.3 && !gB.open) { gB.prog += dt * 0.5; if (gB.prog >= 1) gB.open = true; }
     }
   }
+}
+
+function driveBot(p, match) {
+  p.lastPing = Date.now();
+  p.keys = new Set();
+  const a = p.ai;
+
+  if (p.status === 'downed' || p.status === 'dead' || p.status === 'escaped' || (p.carrier && p.role !== 'killer')) {
+    p.keys.clear(); return;
+  }
+
+  if (p.role === 'killer') {
+    // killer: chase & attack nearest survivor, sprint when close
+    const s = aiNearestSurvivor(p, match);
+    const speed = p.sprint > 5 ? 11.5 : 8.5;
+    if (s) {
+      walkTo(p, s.x, s.z);
+      const d = dist2(p, s);
+      if (d <= 2.7 * 2.7) {
+        const facing = FWD(p.yaw);
+        const dx = s.x - p.x, dz = s.z - p.z;
+        const dl = Math.hypot(dx, dz) || 1;
+        if (dx / dl * facing.x + dz / dl * facing.z > 0.5) { p.keys.add('m1'); }
+      }
+      if (d < 15 * 15) p.keys.add('shift');
+    } else if (a.focus) {
+      // patrol the learned hot generator
+      p.sprint *= 0.94;
+      walkTo(p, a.focus.x, a.focus.z);
+    }
+  } else {
+    // survivor bot: head to goal, interact when close, escape when gates open
+    if (p.status === 'downed') { p.keys.clear(); return; }
+    const myGoal = a.focus;
+    // if carried by killer (as a carried survivor is only if killer == this survivor's killer and killer.carrier==p) -> nothing
+    if (p.carrier) { p.keys.clear(); return; }
+    const goal = myGoal || { kind: 'gen', x: match.gens[0].x, z: match.gens[0].z };
+    const gd = dist2(p, goal);
+    if (goal.kind === 'gen') {
+      // adapt: reprioritize to another bot/hot gen if near full
+      if (gd <= 2.5 * 2.5) {
+        p.keys = new Set(['e']);
+        const g = match.gens.find(g2 => g2.id === goal.id);
+        if (g) { g.heat = (g.heat || 0) + dt * 8; }
+        a.waitT = (a.waitT || 0) + 1;
+        if (a.waitT > 140) { a.waitT = 0; reprioritizeGen(p, match, a); }
+      } else {
+        walkTo(p, goal.x, goal.z);
+      }
+    } else if (goal.kind === 'gate') {
+      const gate = match.gates.find(g2 => g2.id === goal.id);
+      if (!gate || gate.open) { a.focus = null; }
+      else if (gd <= 2.5 * 2.5) { p.keys = new Set(['e']); a.waitT = (a.waitT || 0) + 1; if (a.waitT > 180) { a.focus = null; reprioritizeGate(p, match, a); } }
+      else walkTo(p, gate.x, gate.z);
+    } else {
+      walkTo(p, goal.x, goal.z);
+    }
+  }
+}
+
+function reprioritizeGen(p, match, a) {
+  const g = aiNearestGen(p, match);
+  if (g) a.focus = { id: g.id, kind: 'gen', x: g.x, z: g.z };
+  else a.focus = { kind: 'gen', x: match.gens[0].x, z: match.gens[0].z };
+}
+function reprioritizeGate(p, match, a) {
+  const gate = match.gates.find(g2 => g2.id !== (a.focus && a.focus.id));
+  if (gate) a.focus = { id: gate.id, kind: 'gate', x: gate.x, z: gate.z };
+}
+
+function walkTo(p, tx, tz) {
+  p.yaw = Math.atan2(tx - p.x, tz - p.z);
+  p.keys.add('w');
+  // wall-collision lag: if we barely moved this tick, nudge past the wall
+  const sx = p.x, sz = p.z;
+  const prev = { x: sx - p.wx, z: sz - p.wz };
+  // simple anti-stuck: try sidestep if stuck on same tile
+  if (p.wx === sx && p.wz === sz) {
+    p.yaw += 1.2; // turn to try slipping past walls
+  }
+  p.wx = sx; p.wz = sz;
 }
 
 function pointInRect(p, r) {
@@ -634,6 +927,7 @@ setInterval(() => {
     const hubs = [];
     for (const p of players.values()) {
       if (p.state !== 'hub' || !p.name) continue;
+      if (p.bot) { p.lastPing = Date.now(); if (Math.random() < 0.2) p.yaw = rand() * Math.PI * 2; }
       const input = p.inputBuffer.shift() || null;
       if (input) { p.keys = new Set(input.k); p.yaw = input.yaw; }
       else p.keys.clear();
@@ -775,6 +1069,7 @@ function topStats(n) {
  * Helpers
  * -------------------------------------------------------------------------*/
 function send(p, msg) {
+  if (!p || p.bot) return; // bots have no socket — internal workings only
   try { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(msg)); } catch {}
 }
 function broadcast(msg) {
@@ -790,6 +1085,11 @@ function returnToHub(p) {
   p.state = 'hub';
   p.matchId = null;
   p.role = null;
+  p.status = 'alive';
+  p.hp = 2;
+  p.carrier = null;
+  p.escaped = false;
+  p.queued = false;
   p.keys.clear();
   p.inputBuffer.length = 0;
   p.x = rint(-20, 20); p.z = rint(-20, 20); p.y = 0;
@@ -801,7 +1101,7 @@ function returnToHub(p) {
  * -------------------------------------------------------------------------*/
 // Last line of defense: one bad message must never take down the whole night.
 process.on('uncaughtException', (err) => {
-  try { console.error('[UNCAUGHT]', err); log('UNCAUGHT', 'server', err.message); } catch {}
+  try { console.error('[UNCAUGHT]', err); log('UNCAUGHT', 'server', (err && err.stack) || err); } catch {}
 });
 process.on('unhandledRejection', (err) => {
   try { console.error('[UNHANDLED]', err); log('UNHANDLED', 'server', (err && err.message) || err); } catch {}

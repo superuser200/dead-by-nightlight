@@ -56,37 +56,39 @@ const sendi = (c, k, yaw, n) => { for (let i = 0; i < (n || 1); i++) c.ws.send(J
   const started = [A, B, C].filter(c => c.matchStart);
   ok(started.length === 3, 'match started for all 3 queued');
   const killer = started.find(c => c.matchStart.match.role === 'killer');
-  const surv = started.find(c => c.matchStart.match.role === 'survivor');
-  ok(!!killer && !!surv, 'roles assigned (killer + survivors)');
+  const survs = started.filter(c => c.matchStart.match.role === 'survivor');
+  ok(!!killer && survs.length > 0, 'roles assigned (killer + survivors)');
 
-  // 4. simulated play: inputs + state flow
+  // 4. simulated play: inputs + state flow (use whichever survivor is connected)
+  const surv = survs[survs.length - 1];
   for (let k = 0; k < 30; k++) {
     sendi(surv, ['w', 'e']); sendi(killer, ['w']);
   }
   await sleep(2000);
   ok(killer.states > 5 && surv.states > 5, 'match state frames streaming to both roles');
 
-  // 5. manual admin ban -> ejected
-  OT.ws.send(JSON.stringify({ t: 'admin', op: 'banUser', name: nameB, reason: 'smoke test ban', durMin: 0 }));
+  // 5. manual admin ban of a survivor -> ejected, then unbanned
+  const banTarget = surv;
+  const nameX = banTarget.name;
+  OT.ws.send(JSON.stringify({ t: 'admin', op: 'banUser', name: nameX, reason: 'smoke test ban', durMin: 0 }));
   await sleep(1200);
-  ok(B.ejected, 'manually banned player was ejected');
-  OT.ws.send(JSON.stringify({ t: 'admin', op: 'unbanUser', name: nameB }));
+  ok(banTarget.ejected, 'manually banned player was ejected');
+  OT.ws.send(JSON.stringify({ t: 'admin', op: 'unbanUser', name: nameX }));
   await sleep(400);
-  const B2 = await makeClient(nameB, null);
+  const B2 = await makeClient(nameX, null);
   ok(B2.auth && B2.auth.ok, 'unbanned player can rejoin');
 
-  // 6. auto-ban: killer floods inputs repeatedly
+  // 6. auto-ban: flood inputs repeatedly from the still-connected killer
   for (let i = 0; i < 4; i++) { sendi(killer, ['shift', 'w'], 0.5, 120); await sleep(1400); }
   await sleep(800);
   const floodHits = killer.ejected || killer.toasts.some(t => /was banned/i.test(t) && /flood|packet|suspicious/i.test(t));
   ok(floodHits, 'input-flood triggered anti-cheat (warning or auto-ban)');
 
-  const bannedName = killer.matchStart ? killer.name : nameA;
-  const K3 = await makeClient(bannedName, null);
+  const K3 = await makeClient(killer.name, null);
   if (!(K3.auth && !K3.auth.ok && K3.auth.msg && /ann/i.test(K3.auth.msg))) {
-    console.log('  [debug] bannedName=', bannedName, ' killer.ejected=', killer.ejected ? killer.ejected.msg : null, ' killer.toasts=', JSON.stringify(killer.toasts));
+    console.log('  [debug] killer=', killer.name, ' killer.ejected=', killer.ejected ? killer.ejected.msg : null, ' killer.toasts=', JSON.stringify(killer.toasts));
     console.log('  [debug] K3.auth=', JSON.stringify(K3.auth), ' K3.byType=', JSON.stringify(K3.byType));
-    console.log('  [debug] bans=', fs.readFileSync('server/data/bans.json', 'utf8'));
+    console.log('  [debug] bans=', fs.readFileSync(require('path').join(__dirname, '..', 'server', 'data', 'bans.json'), 'utf8'));
   }
   ok(K3.auth && !K3.auth.ok && K3.auth.msg && /ann/i.test(K3.auth.msg), `auto-banned name rejected: "${K3.auth && K3.auth.msg}"`);
 
@@ -97,7 +99,7 @@ const sendi = (c, k, yaw, n) => { for (let i = 0; i < (n || 1); i++) c.ws.send(J
   ok(B2.chat && B2.chat.msg === 'hello fog', 'chat broadcast working');
 
   // 8. bad packets are tolerated without crashing
-  surv.ws.send('not json!@#');
+  B2.ws.send('not json!@#');
   await sleep(400);
   ok(true, 'bad packet did not crash server');
 

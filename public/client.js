@@ -86,10 +86,17 @@ let targetPos = new Map();      // id -> {x,z,y,yaw,status,carrier,hp}
 const isDowned = (s) => s === 'downed';
 const isDead = (s) => s === 'dead' || s === 'escaped';
 
+const BASE_SKY = 0x060a14, BASE_FOG = 0x0a0f1e;
+const THEMES = {
+  hollow: { floor: 0x141a26, grid: 0x1c2434, tree: [0x16212e, 0x1c3324, 0x2a3440] },
+  farm:   { floor: 0x151b10, grid: 0x202a18, tree: [0x1c2a16, 0x223820, 0x3a3320] },
+  graveyard: { floor: 0x161722, grid: 0x22222f, tree: [0x1d1f2c, 0x2a2b3a, 0x34323f] },
+};
+
 function start() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x060a14);
-  scene.fog = new THREE.Fog(0x0a0f1e, 40, 120);
+  scene.background = new THREE.Color(BASE_SKY);
+  scene.fog = new THREE.Fog(BASE_FOG, 40, 120);
 
   camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 400);
 
@@ -128,30 +135,38 @@ function buildHub() {
 function enterMatch() {
   leaveMatch();
   matchGroup = new THREE.Group(); scene.add(matchGroup);
+  const theme = THEMES[matchMap.theme] || THEMES.hollow;
+  scene.background = new THREE.Color(matchMap.theme === 'farm' ? 0x08110a : matchMap.theme === 'graveyard' ? 0x0a0912 : BASE_SKY);
+  scene.fog = new THREE.Fog(matchMap.theme === 'farm' ? 0x0c1a0e : matchMap.theme === 'graveyard' ? 0x100e1c : BASE_FOG, 40, 120);
   const w = 90, h = w;
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ color: theme.floor }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; matchGroup.add(floor);
-  const grd = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0x1c2434, transparent: true, opacity: 0.4 }));
+  const grd = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: theme.grid, transparent: true, opacity: 0.4 }));
   grd.rotation.x = -Math.PI / 2; grd.position.y = 0.02; matchGroup.add(grd);
 
-  // perimeter walls with two gate gaps
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x2a3140 });
+  // perimeter walls with gaps at the map's gates
+  const wallMat = new THREE.MeshLambertMaterial({ color: matchMap.theme === 'farm' ? 0x3a3d26 : matchMap.theme === 'graveyard' ? 0x33303f : 0x2a3140 });
   const mkWall = (x, z, ww, dd) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(ww, 4, dd), wallMat);
     m.position.set(x, 2, z); m.castShadow = true; matchGroup.add(m);
   };
-  // north wall (z=45): gap x -4..4
-  mkWall(-45 + (45 - 4) / 2, 45, 45 - 4, 1.2);
-  mkWall(4 + (45 - 4) / 2, 45, 45 - 4, 1.2);
-  // south wall z=-45 full
-  mkWall(0, -45, 90, 1.2);
-  // west wall x=-45 full
-  mkWall(-45, 0, 1.2, 90);
-  // east wall (x=45): gap z -4..4
-  mkWall(45, -45 + (45 - 4) / 2, 1.2, 45 - 4);
-  mkWall(45, 4 + (45 - 4) / 2, 1.2, 45 - 4);
+  const gz = 4; // half-width of a gate gap
+  const T = 1.2;
+  const gaps = new Set((matchMap.gates || []).map(g => g.dir));
+  const sideX = (fixed, has) => {
+    if (has) mkWall(fixed, 0, T, 90);
+    else { mkWall(fixed, -44 + (44 - gz) / 2, T, 44 - gz); mkWall(fixed, gz + (44 - gz) / 2, T, 44 - gz); }
+  };
+  const sideZ = (fixed, has) => {
+    if (has) mkWall(0, fixed, 90, T);
+    else { mkWall(-44 + (44 - gz) / 2, fixed, 44 - gz, T); mkWall(gz + (44 - gz) / 2, fixed, 44 - gz, T); }
+  };
+  sideZ(45, gaps.has('north'));
+  sideZ(-45, gaps.has('south'));
+  sideX(-45, gaps.has('west'));
+  sideX(45, gaps.has('east'));
 
-  trees(matchGroup, 50, 44);
+  trees(matchGroup, 50, 44, theme.tree);
 
   // generators
   for (const g of matchMap.gens) {
@@ -177,10 +192,11 @@ function enterMatch() {
   $('mm').style.display = 'block';
 }
 
-function trees(group, n, spread) {
-  const matT = new THREE.MeshLambertMaterial({ color: 0x16212e });
-  const matL = new THREE.MeshLambertMaterial({ color: 0x1c3324 });
-  const matR = new THREE.MeshLambertMaterial({ color: 0x2a3440 });
+function trees(group, n, spread, palette) {
+  const pal = palette || [0x16212e, 0x1c3324, 0x2a3440];
+  const matT = new THREE.MeshLambertMaterial({ color: 0x3a2a1a });
+  const matL = new THREE.MeshLambertMaterial({ color: pal[1] });
+  const matR = new THREE.MeshLambertMaterial({ color: pal[2] });
   for (let i = 0; i < n; i++) {
     const x = (Math.random() * 2 - 1) * spread, z = (Math.random() * 2 - 1) * spread;
     if (Math.abs(x) < 4 && Math.abs(z) < 4) continue; // keep center clear
@@ -259,28 +275,72 @@ function ensurePlayer(p) {
   const isKiller = p.role === 'killer';
   const group = new THREE.Group();
   const bodyCol = isKiller ? 0x7a1f18 : 0x2f7f8f;
+  const skinCol = isKiller ? 0x3a2a20 : 0xd9b48f;
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.95, 0.42), new THREE.MeshLambertMaterial({ color: bodyCol }));
-  body.position.y = 0.85;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshLambertMaterial({ color: isKiller ? 0x9a2f22 : 0xd9b48f }));
-  head.position.y = 1.55;
+  const limb = (mat) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.55, 8), mat);
+    m.position.y = -0.28; // pivot at shoulder/hip
+    return m;
+  };
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.38), new THREE.MeshLambertMaterial({ color: bodyCol }));
+  body.position.y = 1.05;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshLambertMaterial({ color: skinCol }));
+  head.position.y = 1.68;
+
+  const armMat = new THREE.MeshLambertMaterial({ color: bodyCol });
+  const legMat = new THREE.MeshLambertMaterial({ color: 0x26303f });
+  const armL = limb(armMat), armR = limb(armMat);
+  armL.position.x = -0.42; armR.position.x = 0.42;
+  armL.position.y = 1.62; armR.position.y = 1.62;
+  const legL = limb(legMat), legR = limb(legMat);
+  legL.position.x = -0.17; legR.position.x = 0.17;
+  legL.position.y = 0.68; legR.position.y = 0.68;
+
+  group.add(body, head, armL, armR, legL, legR);
   const name = makeNameSprite(p.name);
+  group.add(name);
 
-  group.add(body); group.add(head); group.add(name);
+  let baseScale = 1;
   if (isKiller) {
-    group.scale.set(1.35, 1.35, 1.35);
-    const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.06), new THREE.MeshBasicMaterial({ color: 0xff3a1a }));
+    baseScale = 1.3;
+    const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a0a }));
     const e2 = e1.clone();
-    e1.position.set(-0.11, 1.6, 0.22); e2.position.set(0.11, 1.6, 0.22);
+    e1.position.set(-0.11, 1.72, 0.23); e2.position.set(0.11, 1.72, 0.23);
     group.add(e1); group.add(e2);
     head.material = new THREE.MeshLambertMaterial({ color: 0x101014 });
-    name.position.y = 3.1;
+    head.scale.setScalar(1.15);
+    name.position.y = 3.05;
+  } else {
+    name.position.y = 2.35;
   }
-  entry = { group, name, survive: !isKiller };
+  group.scale.set(baseScale, baseScale, baseScale);
+
+  entry = { group, name, isKiller, armL, armR, legL, legR, moving: null };
   playerMeshes.set(p.id, entry);
   if (matchState === 'match' && matchGroup) matchGroup.add(group);
   else scene.add(group);
   return entry;
+}
+
+function setPose(entry, moving, dead, downed) {
+  if (!entry) return;
+  const a = entry.isKiller ? 0.4 : 0.55;
+  if (moving) entry.moving = moving;
+  if (dead || downed) {
+    entry.armL.rotation.z = Math.PI / 2; entry.armR.rotation.z = -Math.PI / 2;
+    entry.legL.rotation.x = 0; entry.legR.rotation.x = 0;
+    entry.group.rotation.z = Math.PI / 2;
+    return;
+  }
+  entry.group.rotation.z = 0;
+  if (entry.moving) {
+    const s = Math.sin(performance.now() / 90) * a;
+    entry.armL.rotation.x = s; entry.armR.rotation.x = -s;
+    entry.legL.rotation.x = -s; entry.legR.rotation.x = s;
+  } else {
+    entry.armL.rotation.x = 0; entry.armR.rotation.x = 0;
+    entry.legL.rotation.x = 0; entry.legR.rotation.x = 0;
+  }
 }
 
 /* ---------------- render loop ---------------- */
@@ -300,6 +360,7 @@ function animate() {
     const t = targetPos.get(id);
     if (!t) return;
     const g = entry.group;
+    const prevX = g.position.x, prevZ = g.position.z;
     g.position.x += (t.x - g.position.x) * 0.25 * delta;
     g.position.z += (t.z - g.position.z) * 0.25 * delta;
     g.position.y += (t.y - g.position.y) * 0.4 * delta;
@@ -308,11 +369,15 @@ function animate() {
     const isYou = id === selfId;
     const dead = isDead(t.status);
     g.visible = t.status !== 'hub' && (matchState === 'hub' || !dead || isYou);
-    if (isDowned(t.status) || t.carrier) {
-      g.rotation.z = Math.PI / 2;
-      g.position.y = Math.min(g.position.y, 0);
-    } else if (g.rotation.z !== (isYou && my.status === 'downed' ? Math.PI / 2 : 0)) {
-      g.rotation.z = 0;
+    const downed = isDowned(t.status) || t.carrier;
+    if (downed) { g.position.y = Math.min(g.position.y, 0); }
+    else g.position.y = Math.max(g.position.y, 0);
+    // animated limbs (only upright, living figures)
+    if (!downed && !dead) {
+      const moving = Math.hypot(g.position.x - prevX, g.position.z - prevZ) > 0.001;
+      setPose(entry, moving, false, false);
+    } else {
+      setPose(entry, false, dead || (downed && isYou && t.status === 'dead'), downed);
     }
   });
 
@@ -402,7 +467,8 @@ setInterval(() => {
 function setChip(id, txt) { $(id).textContent = txt; }
 
 function updateHud() {
-  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''} · Gen ${matchMap ? matchMap.gensDone : 0}/5` : `Hub · ${hubPlayers.length} souls · queue ${queueSize}|${matchesActive === 1 ? 'game' : 'games'}`);
+  const map = matchMap && matchMap.mapName ? ' · ' + matchMap.mapName : '';
+  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/5` : `Hub · ${hubPlayers.length} souls · queue ${queueSize}|${matchesActive === 1 ? 'game' : 'games'}`);
   setChip('role', !role ? 'RECRUIT' : role === 'killer' ? 'KILLER' : 'SURVIVOR');
   if (role === 'killer') {
     setChip('obj', 'Hunt & sacrifice survivors (3+ to win)');
