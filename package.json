@@ -1,0 +1,15 @@
+{
+  "name": "dead-by-nightlight",
+  "version": "1.0.0",
+  "description": "DEAD BY NIGHTLIGHT - free browser MMO horror game (1 killer vs 10 survivors) with anti-cheat and admin ban tools.",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

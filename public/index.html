@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DEAD BY NIGHTLIGHT — MMO Dark Survival</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="scene"></div>
+<canvas id="mm"></canvas>
+
+<!-- Login -->
+<div id="login" class="overlay">
+  <div class="panel">
+    <h1 class="title">DEAD BY <span>NIGHTLIGHT</span></h1>
+    <p class="sub">1 killer. 10 survivors. One eternal night.</p>
+    <input id="name" maxlength="16" placeholder="Survivor name" autocomplete="off" />
+    <input id="adminkey" maxlength="40" placeholder="Admin key (optional)" autocomplete="off" />
+    <button id="join" class="btn">ENTER THE FOG</button>
+    <p id="authmsg" class="err"></p>
+  </div>
+</div>
+
+<!-- Queue / hub HUD -->
+<div id="hud">
+  <div id="topbar">
+    <div id="role" class="chip"></div>
+    <div id="online" class="chip"></div>
+    <div id="obj" class="chip"></div>
+    <div id="stats" class="chip"></div>
+  </div>
+  <div id="bars"></div>
+  <div id="prompt"></div>
+  <div id="toasts"></div>
+  <div id="end"></div>
+</div>
+
+<!-- Chat -->
+<div id="chatwrap">
+  <div id="chatlog"></div>
+  <input id="chatinput" maxlength="160" placeholder="Chat... (Enter)" />
+</div>
+
+<div id="hint">Click to aim · WASD move · Shift sprint · E interact/pickup · Space jump/· drop · LMB attack · Q queue</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="client.js"></script>
+</body>
+</html>

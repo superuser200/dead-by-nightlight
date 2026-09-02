@@ -1,0 +1,19 @@
+# Free deploy to Render (render.com). One-click:
+#   1. Push this repo to GitHub
+#   2. New > Web Service > connect repo
+#   3. Use this render.yaml as the blueprint (Render auto-serves it)
+services:
+  - type: web
+    name: dead-by-nightlight
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ADMIN_TOKEN
+        generateValue: true
+        sync: false
+      - key: NODE_VERSION
+        value: 20

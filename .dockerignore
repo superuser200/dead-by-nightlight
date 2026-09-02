@@ -1,0 +1,7 @@
+node_modules
+npm-debug.log
+server/data
+server.out.log
+server.err.log
+test
+.git

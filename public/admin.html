@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DEAD BY NIGHTLIGHT — Admin / Ban Tool</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  body { padding: 20px; overflow: auto; user-select: auto; }
+  h1 { font-size: 22px; letter-spacing: 2px; margin-bottom: 4px; }
+  h1 span { color: #ff5a4e; }
+  .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 1200px; margin: 0 auto; }
+  .card { background: rgba(10,16,28,.85); border: 1px solid #26344f; border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; color: #9fb2d6; margin-bottom: 10px; letter-spacing: 1px; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .row input, .row select { flex: 1; margin: 0; padding: 9px 10px; font-size: 13px; }
+  .row .btn { width: auto; padding: 9px 12px; font-size: 13px; margin: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1c2740; }
+  th { color: #8b98b5; font-weight: 600; }
+  .role-killer { color: #ff5a4e; font-weight: 700; }
+  .role-survivor { color: #2cc8e8; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #19253d; border: 1px solid #2c3b59; }
+  .badge.on { color: #5dff8a; border-color: #2a6a3a; }
+  .hint { color: #5f6f92; font-size: 12px; margin: 10px 0; }
+  #log { font-family: Consolas, monospace; font-size: 12px; max-height: 380px; overflow-y: auto; }
+  #log div { padding: 3px 0; border-bottom: 1px dashed #16233c; color: #b9c6e4; }
+  .logbad { color: #ff7a6e; }
+  button.small { margin: 0; padding: 4px 8px; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>DEAD BY <span>NIGHTLIGHT</span> — Admin &amp; Ban Tool</h1>
+<p class="hint">Connect with your admin key (printed in the server console) to manage bans, kicks and watch the anti-cheat feed.</p>
+
+<div class="card" style="max-width:1200px;margin:0 auto 18px;">
+  <h2>Connection</h2>
+  <div class="row">
+    <input id="key" placeholder="Admin key" />
+    <button id="go" class="btn">CONNECT</button>
+    <span id="status" class="badge">disconnected</span>
+  </div>
+</div>
+
+<div class="wrap" id="app" style="opacity:.4;pointer-events:none;">
+  <div>
+    <div class="card">
+      <h2>Online players</h2>
+      <table id="players"><tr><th>Name</th><th>State</th><th>Role</th><th>IP</th><th></th></tr></table>
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Banned users</h2>
+      <table id="busers"></table>
+      <div class="row" style="margin-top:12px;">
+        <input id="bname" placeholder="username to ban" maxlength="16" />
+        <input id="breason" placeholder="reason" />
+        <select id="bdur">
+          <option value="0">permanent</option>
+          <option value="10">10 minutes</option>
+          <option value="60">1 hour</option>
+          <option value="1440">1 day</option>
+        </select>
+        <button id="banUser" class="btn">BAN</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Banned IPs</h2>
+      <table id="bips"></table>
+      <div class="row" style="margin-top:12px;">
+        <input id="bip" placeholder="1.2.3.4" />
+        <input id="bipr" placeholder="reason" />
+        <button id="banIp" class="btn">BAN IP</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Anti-cheat feed (auto-bans live)</h2>
+      <div id="log"><div style="color:#5f6f92">Waiting for events…</div></div>
+      <p class="hint">Speed / fly / teleport cheats are physically blocked by the server (it owns your position). This feed records flood &amp; tamper attempts.</p>
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Match control</h2>
+      <div class="row">
+        <span class="hint" style="margin:0">Anti-cheat auto-bans offenders permanently-ish (1h). Manual bans above override.</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="admin.js"></script>
+</body>
+</html>
