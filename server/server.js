@@ -163,6 +163,7 @@ function onMessage(p, raw) {
     case 'chat': return onChat(p, msg);
     case 'queue': return onQueue(p, true);
     case 'unqueue': return onQueue(p, false);
+    case 'ping': return send(p, { t: 'pong', ts: Number(msg.ts) || Date.now() });
     case 'admin': return onAdmin(p, msg);
     default:
       p.flags.badJson += 1;
@@ -439,6 +440,7 @@ function giveBotBase(b) {
   b.hp = 2; b.status = 'alive'; b.carrier = null;
   b.sprint = 100; b.attackCd = 0;
   b.skill = b.skill != null ? b.skill : (0.35 + rand() * 0.65); // difficulty tier
+  b.stats = stats[b.nameLow] || { games: 0, esc: 0, dead: 0, kills: 0, wins: 0 };
   b.wx = null; b.wz = null; b.waitT = 0;
   b.ai = b.ai || { style: 'stealth', focus: null, retarget: Date.now(), cd: Date.now(), waitT: 0 };
 }
@@ -573,6 +575,20 @@ function aiNearestSurvivor(p, match) {
   }
   return best;
 }
+function aiNearestDowned(p, match) {
+  let best = null, bd = 1e9;
+  for (const s of match.survivors) {
+    if (s.status !== 'downed' || s.carrier) continue;
+    if (!players.has(s.id)) continue;
+    const d = dist2(p, s); if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+function aiNearestHook(p, match) {
+  let best = null, bd = 1e9;
+  for (const h of match.hooks) { const d = dist2(p, h); if (d < bd) { bd = d; best = h; } }
+  return best;
+}
 
 function broadcastQT(msg) { broadcast({ t: 'toast', msg }); }
 
@@ -658,7 +674,7 @@ function simulateMatch(match) {
           }
         }
       } else if (p.keys.has('e')) {
-        const target = survs.find(s => s.status === 'downed' && dist2(s, p) <= 2.2 * 2.2);
+        const target = survs.find(s => s.status === 'downed' && dist2(s, p) <= 2.4 * 2.4);
         if (target) { p.carrier = target.id; target.bleedT = 0; }
       }
     } else {
@@ -675,12 +691,13 @@ function simulateMatch(match) {
     if (!players.has(p.id) || p.state !== 'match') continue;
     if (p.status === 'dead' || p.status === 'escaped') { p.bleedT = 0; continue; }
 
-    // bleeding out
-    if (p.status === 'downed') {
+    // bleeding out (skip survivors currently being carried to a hook)
+    if (p.status === 'downed' && killer.carrier !== p.id) {
       p.bleedT -= dt;
       if (p.bleedT <= 0) killSurvivor(match, p, 'bled-out', killer);
       continue;
     }
+    if (p.status === 'downed') continue;
 
     const e = p.keys.has('e');
 
@@ -735,11 +752,30 @@ function driveBot(p, match) {
   }
 
   if (p.role === 'killer') {
-    // killer: chase & attack nearest survivor, sprint when close
-    const s = aiNearestSurvivor(p, match);
-    const speed = p.sprint > 5 ? 11.5 : 8.5;
+    // killer: chase & attack, carry the downed to a hook, sacrifice
     const sk = p.skill || 0.5;
-    if (s) {
+    const sNear = aiNearestSurvivor(p, match);
+    const sDown = aiNearestDowned(p, match);
+    if (p.carrier) {
+      const c = players.get(p.carrier);
+      const hook = aiNearestHook(p, match);
+      if (hook) {
+        walkTo(p, hook.x, hook.z);
+        const hd = dist2(p, hook);
+        if (hd <= 2.4 * 2.4) {
+          p.keys.add('e'); // sacrifice on the hook
+          a.waitT = (a.waitT || 0) + 1;
+          if (a.waitT > 40) { a.waitT = 0; p.keys.add('space'); } // too slow -> drop & redo
+        }
+      } else if (c) { p.keys.add('space'); p.carrier = null; }
+      return;
+    }
+    // always secure a downed body before chasing anyone else
+    if (sDown && dist2(p, sDown) <= 2.4 * 2.4) { p.keys.add('e'); return; }
+    if (sDown) { walkTo(p, sDown.x, sDown.z); return; }
+    const s = sNear;
+    const speed = p.sprint > 5 ? 11.5 : 8.5;
+    if (s && s.status !== 'downed') {
       // skilled killers commit harder to the chase; weak ones drift to their focus more
       const commit = rand() < 0.35 + sk * 0.4;
       if (commit || !a.focus) {
@@ -802,7 +838,7 @@ function reprioritizeGate(p, match, a) {
 }
 
 function walkTo(p, tx, tz) {
-  p.yaw = Math.atan2(tx - p.x, tz - p.z);
+  p.yaw = Math.atan2(tx - p.x, -(tz - p.z));
   p.keys.add('w');
   // wall-collision lag: if we barely moved this tick, nudge past the wall
   const sx = p.x, sz = p.z;

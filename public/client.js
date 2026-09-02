@@ -18,6 +18,8 @@ let matchState = 'hub';      // 'hub' | 'match' | 'done'
 let hubPlayers = [];
 let matchPlayers = [];
 let queueSize = 0, matchesActive = 0;
+let lastPing = { rtt: null };
+let camFollowId = null;
 
 function connect(token) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -74,11 +76,13 @@ function handle(msg) {
     case 'toast':
       if (/gates are powered/i.test(msg.msg)) sfx('power');
       if (/ECLIPSE BLINKS/i.test(msg.msg)) sfx('eclipse');
+      if (/You wounded/i.test(msg.msg)) sfx('hit');
       toast(msg.msg); break;
     case 'chat': chat(msg.from, msg.msg, msg.admin); break;
     case 'queue': queueSize = msg.size; updateHud(); break;
     case 'queueInfo': queueSize = msg.size; matchesActive = msg.matches; updateHud(); break;
     case 'ejected': sfx('sting'); toast(msg.msg, 'bad'); break;
+    case 'pong': if (msg.ts) lastPing.rtt = performance.now() - Number(msg.ts); break;
   }
 }
 
@@ -179,7 +183,7 @@ function enterMatch() {
     const grp = genGroup();
     grp.position.set(g.x, 0, g.z);
     matchGroup.add(grp);
-    genMeshes.set(g.id, { grp, core: grp.children[4] });
+    genMeshes.set(g.id, { grp, core: grp.children[3], bar: grp.children[5] });
   }
   // hooks
   for (const hk of matchMap.hooks) {
@@ -227,6 +231,9 @@ function genGroup() {
   core.position.y = 1.45;
   g.add(core);
   g.add(new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.06, 6, 14), new THREE.MeshBasicMaterial({ color: 0x8fa9e0 })).translateY(1.45));
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.4, 0.16), new THREE.MeshBasicMaterial({ color: 0xffd24e, transparent: true, opacity: 0.85 }));
+  bar.position.y = 0.7;
+  g.add(bar);
   return g;
 }
 function hookGroup() {
@@ -387,8 +394,19 @@ function animate() {
     }
   });
 
-  // camera follow self
-  const me = targetPos.get(selfId) || my;
+  // camera follow: self, or ghost-spectate a survivor's match when dead/escaped
+  const meSelf = targetPos.get(selfId) || my;
+  let me = meSelf;
+  if (matchState === 'match' && matchPlayers.length) {
+    const M = matchPlayers.find(p => p.id === selfId);
+    if (M && M.role === 'survivor' && (M.status === 'dead' || M.status === 'escaped')) {
+      const k = matchPlayers.find(p => p.role === 'killer');
+      const t = (k && targetPos.get(k.id)) ? k.id : null;
+      const watched = t != null ? t : (matchPlayers.find(p => p.role === 'survivor' && p.id !== selfId && p.status !== 'dead') || {}).id;
+      camFollowId = watched != null ? watched : selfId;
+      me = targetPos.get(camFollowId) || meSelf;
+    } else camFollowId = null;
+  } else camFollowId = null;
   const yaw = me.yaw || my.yaw || 0;
   camSmooth.yaw += (yaw - camSmooth.yaw) * 0.12 * delta;
   camSmooth.pitch = clamp(Math.max(-0.9, camSmooth.pitch), -1, -0.2);
@@ -406,6 +424,9 @@ function animate() {
       m.core.material.color.setHex(g.done ? 0x3dff7a : 0xffd24e);
       m.core.scale.setScalar(0.4 + g.prog * 0.9);
       m.core.position.y = 1.3 + g.prog * 0.25;
+      m.bar.scale.y = Math.max(0.1, g.prog);
+      m.bar.position.y = 0.15 + 0.7 * m.bar.scale.y;
+      m.bar.material.color.setHex(g.done ? 0x3dff7a : 0xffd24e);
     }
     for (const g of matchMap.gates) {
       const gm = gateMeshes.get(g.id);
@@ -491,6 +512,7 @@ function sfx(kind) {
   };
   switch (kind) {
     case 'hurt': osc('sawtooth', 180, t0, 0.24, 0.22, 60); break;
+    case 'hit': osc('square', 1100, t0, 0.07, 0.14, 320); osc('sawtooth', 480, t0 + 0.02, 0.09, 0.1, 220); break;
     case 'down': osc('square', 140, t0, 0.42, 0.2, 38); osc('sine', 70, t0, 0.42, 0.28, 40); break;
     case 'heart': osc('sine', 58, t0, 0.12, 0.38); osc('sine', 46, t0 + 0.19, 0.15, 0.38); break;
     case 'sting': osc('square', 480, t0, 0.2, 0.18, 200); osc('sine', 90, t0 + 0.06, 0.5, 0.28, 42); break;
@@ -579,6 +601,10 @@ setInterval(() => {
   el.addEventListener('touchend', () => keys.delete(key));
 });
 
+setInterval(() => {
+  if (selfId && matchState !== 'hub') send({ t: 'ping', ts: performance.now() });
+}, 2500);
+
 /* ---------------- HUD ---------------- */
 function setChip(id, txt) { $(id).textContent = txt; }
 
@@ -594,15 +620,28 @@ function updateHud() {
     clkEl.classList.toggle('low', cl <= 30);
     clkEl.style.display = '';
   } else clkEl.style.display = 'none';
+  const pingEl = $('ping');
+  if (selfId && matchState !== 'hub') {
+    pingEl.textContent = 'Ping ' + (lastPing.rtt != null ? Math.round(lastPing.rtt) + 'ms' : '…');
+    pingEl.style.display = '';
+  } else pingEl.style.display = 'none';
   if (role === 'killer') {
     setChip('obj', 'Hunt & sacrifice survivors (3+ to win)');
     bars('stamina', my.sprint / 100 || 0);
     setChip('stats', `Sacrifices: ${(matchPlayers.filter(p => p.role === 'survivor' && (p.status === 'dead')).length)}/${matchPlayers.filter(p => p.role === 'survivor').length}`);
   } else if (role === 'survivor') {
-    const powered = matchMap && matchMap.gatesPowered;
-    setChip('obj', powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`);
-    setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}`);
-    bars('hp', (my.hp || 0) / 2);
+    const Mm = matchPlayers.find(p => p.id === selfId);
+    if (Mm && (Mm.status === 'dead' || Mm.status === 'escaped')) {
+      const wat = matchPlayers.find(p => p.id === camFollowId);
+      setChip('obj', wat ? `GHOST VIEW — watching ${wat.name}` : 'GHOST VIEW');
+      setChip('stats', Mm.status === 'dead' ? 'Taken by the night' : 'You escaped');
+      bars('hp', 0);
+    } else {
+      const powered = matchMap && matchMap.gatesPowered;
+      setChip('obj', powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`);
+      setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}`);
+      bars('hp', (my.hp || 0) / 2);
+    }
   } else {
     setChip('obj', 'Press Q to queue for a match — first in gets the knife');
     bars('hp', 0); bars('stamina', 0);
@@ -655,6 +694,7 @@ $('chatinput').addEventListener('keydown', (e) => {
 function updatePrompt() {
   const pr = $('prompt');
   if (matchState !== 'match' || role !== 'survivor' || !matchMap) { pr.style.display = 'none'; return; }
+  if (my.status === 'dead' || my.status === 'escaped') { pr.style.display = 'none'; return; }
   let text = '';
   if (my.status === 'downed') text = 'Downed! A teammate can revive you…';
   else if (matchMap.gatesPowered) {
