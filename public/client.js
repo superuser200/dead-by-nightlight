@@ -59,20 +59,26 @@ function handle(msg) {
       break;
     case 'matchStart':
       role = msg.match.role; matchMap = msg.match.map; matchState = 'running';
-      enterMatch(); toast(role === 'killer' ? 'You are THE KILLER. Hunt them all.' : 'You are a SURVIVOR. Repair 5 generators & escape!', role === 'killer' ? 'bad' : 'good');
+      enterMatch(); showSplash(matchMap, role);
+      if (msg.match.role === 'killer') sfx('sting');
+      toast(role === 'killer' ? 'You are THE KILLER. Hunt them all.' : 'You are a SURVIVOR. Repair 5 generators & escape!', role === 'killer' ? 'bad' : 'good');
       break;
     case 'returnHub':
       role = null; matchState = 'hub'; matchMap = null; matchPlayers = [];
-      leaveMatch(); toast('Back at the survivor hub.');
+      if (hubCount) { clearInterval(hubCount); hubCount = null; }
+      hideSplash(); leaveMatch(); toast('Back at the survivor hub.');
       break;
     case 'matchEnd':
       endMatch(msg.result, msg.mine);
       break;
-    case 'toast': toast(msg.msg); break;
+    case 'toast':
+      if (/gates are powered/i.test(msg.msg)) sfx('power');
+      if (/ECLIPSE BLINKS/i.test(msg.msg)) sfx('eclipse');
+      toast(msg.msg); break;
     case 'chat': chat(msg.from, msg.msg, msg.admin); break;
     case 'queue': queueSize = msg.size; updateHud(); break;
     case 'queueInfo': queueSize = msg.size; matchesActive = msg.matches; updateHud(); break;
-    case 'ejected': toast(msg.msg, 'bad'); break;
+    case 'ejected': sfx('sting'); toast(msg.msg, 'bad'); break;
   }
 }
 
@@ -442,6 +448,7 @@ document.addEventListener('keydown', (e) => {
   if (isTyping()) return;
   const k = e.key.toLowerCase();
   if (k === 'enter') { e.preventDefault(); focusChat(); return; }
+  if (k === 'm') { sfxMuted = !sfxMuted; toast(sfxMuted ? 'Sound muted (M)' : 'Sound on (M)'); return; }
   if (k === 'q') { if (e.repeat) return; send({ t: 'queue' }); return; }
   if (['w', 'a', 's', 'd', 'shift', 'e', ' '].includes(k)) keys.add(k === ' ' ? 'space' : k === 'shift' ? 'shift' : k);
 });
@@ -463,13 +470,130 @@ setInterval(() => {
   send({ t: 'input', k: Array.from(keys), yaw, pitch: look.pitch });
 }, INPUT_MS);
 
+/* ---------------- professional FX: sound, splash, vignette, touch ---------------- */
+let actx = null, sfxMuted = false;
+function ac() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (actx && actx.state === 'suspended') actx.resume(); return actx; }
+function syncAudio() { const c = ac(); if (c) c.resume(); }
+['mousedown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, syncAudio, { passive: true }));
+
+function sfx(kind) {
+  if (sfxMuted) return;
+  const c = ac(); if (!c) return;
+  const t0 = c.currentTime;
+  const osc = (type, f, t, d, v, glide) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (glide) o.frequency.exponentialRampToValueAtTime(Math.max(1, glide), t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + d + 0.03);
+  };
+  switch (kind) {
+    case 'hurt': osc('sawtooth', 180, t0, 0.24, 0.22, 60); break;
+    case 'down': osc('square', 140, t0, 0.42, 0.2, 38); osc('sine', 70, t0, 0.42, 0.28, 40); break;
+    case 'heart': osc('sine', 58, t0, 0.12, 0.38); osc('sine', 46, t0 + 0.19, 0.15, 0.38); break;
+    case 'sting': osc('square', 480, t0, 0.2, 0.18, 200); osc('sine', 90, t0 + 0.06, 0.5, 0.28, 42); break;
+    case 'escape': [523, 659, 784, 1046].forEach((f, i) => osc('triangle', f, t0 + i * 0.09, 0.24, 0.16)); break;
+    case 'power': [392, 523, 659].forEach((f, i) => osc('triangle', f, t0 + i * 0.08, 0.28, 0.18)); break;
+    case 'eclipse': osc('sine', 220, t0, 1.6, 0.25, 55); [330, 440].forEach((f, i) => osc('triangle', f, t0 + i * 0.12, 0.32, 0.14)); break;
+  }
+}
+
+let splashT = null;
+function showSplash(map, role) {
+  const s = $('splash');
+  s.innerHTML = '<h2>' + (map && map.mapName ? map.mapName.toUpperCase() : 'THE NIGHT') + '</h2>'
+    + (role === 'killer'
+      ? '<p>YOU ARE THE KILLER · SACRIFICE 3</p>'
+      : '<p>REPAIR 5 GENERATORS &amp; ESCAPE<span class="fade"><br>SURVIVE THE ECLIPSE</span></p>');
+  s.classList.add('show');
+  if (splashT) clearTimeout(splashT);
+  splashT = setTimeout(() => s.classList.remove('show'), 3400);
+}
+function hideSplash() { if (splashT) clearTimeout(splashT); $('splash').classList.remove('show'); }
+
+function hurtFlash() {
+  const v = $('vignette');
+  v.classList.remove('flash'); void v.offsetWidth; v.classList.add('flash');
+}
+
+let lastHeart = 0;
+setInterval(() => {
+  if (matchState !== 'match' || role !== 'survivor') return;
+  const me = targetPos.get(selfId) || my;
+  let kd = 1e9;
+  for (const p of matchPlayers) if (p.role === 'killer' && p.status !== 'dead' && p.status !== 'escaped') kd = Math.min(kd, dist2(me, p));
+  const now2 = performance.now();
+  if (kd < 12 * 12 && now2 - lastHeart > 950) { sfx('heart'); lastHeart = now2; }
+}, 250);
+
+/* mobile touch controls — left stick moves, right drag looks */
+const touchOn = matchMedia('(pointer: coarse)').matches;
+const TP = { stick: null, ox: 0, oy: 0, ex: 0, ey: 0, look: null, lx: 0, ly: 0 };
+if (touchOn) $('touchpad').classList.add('on');
+const stickEl = $('stick');
+stickEl.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  TP.stick = t.identifier; TP.ox = t.clientX; TP.oy = t.clientY; TP.ex = 0; TP.ey = 0; syncAudio();
+}, { passive: false });
+stickEl.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === TP.stick) { TP.ex = t.clientX - TP.ox; TP.ey = t.clientY - TP.oy; }
+}, { passive: false });
+stickEl.addEventListener('touchend', (e) => {
+  for (const t of e.changedTouches) if (t.identifier === TP.stick) TP.stick = null;
+  TP.ex = 0; TP.ey = 0;
+  keys.delete('w'); keys.delete('a'); keys.delete('s'); keys.delete('d');
+});
+document.addEventListener('touchstart', (e) => {
+  const t = e.changedTouches[0];
+  if (t.clientX > innerWidth / 2 && TP.look == null && !e.target.closest('#touchpad button')) { TP.look = t.identifier; TP.lx = t.clientX; TP.ly = t.clientY; }
+}, { passive: true });
+document.addEventListener('touchmove', (e) => {
+  if (TP.look == null) return;
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === TP.look) {
+    look.yaw -= (t.clientX - TP.lx) * 0.005;
+    look.pitch = clamp(look.pitch - (t.clientY - TP.ly) * 0.005, -1.1, 0.5);
+    my.yaw = look.yaw; TP.lx = t.clientX; TP.ly = t.clientY;
+  }
+}, { passive: false });
+document.addEventListener('touchend', (e) => { for (const t of e.changedTouches) if (t.identifier === TP.look) TP.look = null; });
+setInterval(() => {
+  if (TP.stick == null) return;
+  const len = Math.hypot(TP.ex, TP.ey);
+  keys.delete('w'); keys.delete('a'); keys.delete('s'); keys.delete('d');
+  if (len < 8) return;
+  const f = FWD(my.yaw), r = RIGHT(my.yaw);
+  const nx = TP.ex / len, nz = TP.ey / len;
+  const fw = nx * f.x + nz * f.z, rt = nx * r.x + nz * r.z;
+  if (fw > 0.35) keys.add('w'); else if (fw < -0.35) keys.add('s');
+  if (rt > 0.35) keys.add('d'); else if (rt < -0.35) keys.add('a');
+}, 40);
+['taction', 'trun'].forEach(id => {
+  const el = $(id);
+  const key = id === 'taction' ? 'e' : 'shift';
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); keys.add(key); syncAudio(); }, { passive: false });
+  el.addEventListener('touchend', () => keys.delete(key));
+});
+
 /* ---------------- HUD ---------------- */
 function setChip(id, txt) { $(id).textContent = txt; }
 
 function updateHud() {
   const map = matchMap && matchMap.mapName ? ' · ' + matchMap.mapName : '';
-  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/5` : `Hub · ${hubPlayers.length} souls · queue ${queueSize}|${matchesActive === 1 ? 'game' : 'games'}`);
+  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/5` : `Hub · ${hubPlayers.length} souls · queue ${queueSize} · ${matchesActive} game${matchesActive === 1 ? '' : 's'}`);
   setChip('role', !role ? 'RECRUIT' : role === 'killer' ? 'KILLER' : 'SURVIVOR');
+  const clkEl = $('clock');
+  if (matchState !== 'hub' && matchMap && matchMap.clock != null) {
+    const cl = Math.max(0, matchMap.clock);
+    const mm = Math.floor(cl / 60), ss = Math.floor(cl % 60);
+    clkEl.textContent = 'ECLIPSE ' + String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+    clkEl.classList.toggle('low', cl <= 30);
+    clkEl.style.display = '';
+  } else clkEl.style.display = 'none';
   if (role === 'killer') {
     setChip('obj', 'Hunt & sacrifice survivors (3+ to win)');
     bars('stamina', my.sprint / 100 || 0);
@@ -559,8 +683,15 @@ function ifMenu() {
   // refresh my info (position comes from server so interactions stay honest)
   const m = matchPlayers.find(p => p.id === selfId);
   if (m) {
+    const pprev = my.status, hprev = my.hp;
     my.hp = m.hp; my.status = m.status; my.sprint = m.sprint != null ? m.sprint : my.sprint;
     my.x = m.x; my.y = m.y; my.z = m.z;
+    if (m.role === 'survivor' && m.status !== pprev) {
+      if (m.status === 'downed') { sfx('down'); hurtFlash(); }
+      else if (m.status === 'injured' && hprev === 2) { sfx('hurt'); hurtFlash(); }
+      else if (m.status === 'escaped') { sfx('escape'); hurtFlash(); }
+      else if (m.status === 'dead') { sfx('sting'); }
+    } else if (m.hp < hprev && m.status === 'injured') { sfx('hurt'); hurtFlash(); }
   }
   for (const p of matchPlayers) {
     const e = ensurePlayer(p);
@@ -571,24 +702,46 @@ function ifMenu() {
   playerMeshes.forEach((_, id) => { if (!seen.has(id) && id !== selfId) { const e = playerMeshes.get(id); if (e) { matchGroup && matchGroup.remove(e.group); } playerMeshes.delete(id); targetPos.delete(id); } });
 }
 
+let hubCount = null;
+
 function endMatch(result, mine) {
   $('end').style.display = 'flex';
-  const t = document.createElement('span');
-  const h = $('end');
-  const tmp = document.createElement('h1');
-  if (result.winner === 'survivors') { tmp.textContent = 'YOU ESCAPED'; tmp.style.color = '#5dff8a'; }
-  else if (result.winner === 'killer') { tmp.textContent = 'FEAR WINS'; tmp.style.color = '#ff5a4e'; }
-  else { tmp.textContent = 'A DRAW IN THE DARK'; tmp.style.color = '#f4c25a'; }
-  h.appendChild(tmp);
+  const h = $('end'); h.innerHTML = '';
+  const t = document.createElement('h1');
+  if (result.winner === 'survivors') { t.textContent = 'YOU ESCAPED'; t.style.color = '#5dff8a'; }
+  else if (result.winner === 'killer') { t.textContent = 'FEAR WINS'; t.style.color = '#ff5a4e'; }
+  else { t.textContent = 'A DRAW IN THE DARK'; t.style.color = '#f4c25a'; }
+  h.appendChild(t);
   const p = document.createElement('p');
-  p.textContent = `Escapes: ${result.esc} · Sacrifices: ${result.kills} — match ${result.killer} hosted the night`;
+  p.textContent = `${result.esc} escape${result.esc === 1 ? '' : 's'} · ${result.kills} sacrifice${result.kills === 1 ? '' : 's'} — the night on ${result.map || 'the wrong side of the fog'} lasted ${result.duration || '?'}s${result.eclipse ? ' · ended by the eclipse' : ''}`;
   h.appendChild(p);
+  if (result.escaped && result.escaped.length) {
+    const el = document.createElement('p');
+    el.style.color = '#5dff8a'; el.style.fontSize = '14px';
+    el.textContent = 'Escaped: ' + result.escaped.join(', ');
+    h.appendChild(el);
+  }
+  if (result.sacrifices && result.sacrifices.length) {
+    const sl = document.createElement('p');
+    sl.style.color = '#ff7a6e'; sl.style.fontSize = '14px';
+    sl.textContent = 'Fallen: ' + result.sacrifices.join(', ');
+    h.appendChild(sl);
+  }
   const b = document.createElement('div');
   b.className = 'big';
   b.textContent = mine.role === 'killer'
     ? (mine.win ? '+1 Killer Victory' : '+1 Match Played')
     : (mine.escaped ? '+1 Escape!' : mine.dead ? 'You fell to the night' : '+1 Match Played');
   h.appendChild(b);
+  const c = document.createElement('p');
+  c.style.color = '#6d7a99'; c.style.fontSize = '13px'; c.style.marginTop = '18px';
+  h.appendChild(c);
+  if (hubCount) clearInterval(hubCount);
+  let n = 6;
+  hubCount = setInterval(() => {
+    c.textContent = n > 0 ? `Returning to hub in ${n}s…` : 'Returning…';
+    if (--n < 0) { clearInterval(hubCount); hubCount = null; }
+  }, 1000);
 }
 
 /* ---------------- minimap ---------------- */

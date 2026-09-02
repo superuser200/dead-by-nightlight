@@ -53,3 +53,31 @@ input:focus { border-color: #58637e; }
 #mm { position: fixed; right: 12px; top: 56px; width: 170px; height: 170px; z-index: 15; background: rgba(6,10,20,.7); border: 1px solid #2a3856; border-radius: 10px; display: none; }
 
 #hint { position: fixed; bottom: 118px; left: 50%; transform: translateX(-50%); color: #6d7a99; font-size: 12px; z-index: 15; pointer-events: none; text-align:center; }
+
+/* ---- professional extras: splash, clock, vignette, touch ---- */
+#clock { color: #9fb2d6; font-variant-numeric: tabular-nums; }
+#clock.low { color: #ff5a4e; background: rgba(122,26,22,.35); border-color: #7a2a22; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+
+#splash { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: radial-gradient(ellipse at 50% 45%, rgba(14,18,34,.86), rgba(2,4,9,.5)); opacity: 0; pointer-events: none; transition: opacity .9s; }
+#splash.show { opacity: 1; }
+#splash h2 { font-size: 40px; letter-spacing: 5px; color: #e8ecf7; text-shadow: 0 0 30px rgba(120,70,220,.45); }
+#splash p { font-size: 17px; letter-spacing: 2px; color: #ff5a4e; }
+#splash p .fade { color: #9fb2d6; }
+
+#vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 42%, rgba(160,20,10,.65) 100%); opacity: 0; z-index: 19; }
+#vignette.flash { animation: hurt .8s ease-out; }
+@keyframes hurt { 0% { opacity: .95; } 100% { opacity: 0; } }
+
+@media (pointer: coarse) {
+  #hint { display: none; }
+}
+#touchpad { position: fixed; inset: 0; z-index: 35; display: none; pointer-events: none; touch-action: none; }
+#touchpad.on { display: block; }
+#stick { position: absolute; left: 0; top: 40%; width: 150px; height: 42%; pointer-events: auto; }
+#stick::before { content: ''; position: absolute; left: 64px; top: 64px; width: 70px; height: 70px; border-radius: 50%; border: 2px solid rgba(210,220,240,.25); pointer-events: none; }
+#stick::after { content: ''; position: absolute; left: 84px; top: 84px; width: 30px; height: 30px; border-radius: 50%; background: rgba(210,220,240,.22); pointer-events: none; }
+#taction, #trun { position: absolute; right: 20px; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(210,220,240,.3); background: rgba(10,16,28,.5); color: #dfe7f5; font-weight: 700; letter-spacing: 1px; pointer-events: auto; }
+#taction { bottom: 120px; }
+#trun { bottom: 34px; }
+#touchpad.blur #stick, #touchpad.blur #taction, #touchpad.blur #trun { opacity: .25; }

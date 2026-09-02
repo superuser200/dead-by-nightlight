@@ -24,6 +24,7 @@ const MAX_BOTS = 4;
 const TICK_MS = 50;        // 20 Hz match simulation
 const HUB_TICK_MS = 66;    // ~15 Hz hub simulation
 const MATCHMAKER_MS = 1000;
+const MATCH_CLOCK = 240;      // seconds before the eclipse ends the night
 
 const FWD = (yaw) => ({ x: Math.sin(yaw), z: -Math.cos(yaw) });
 const RIGHT = (yaw) => ({ x: Math.cos(yaw), z: Math.sin(yaw) });
@@ -299,6 +300,8 @@ function startMatch(group) {
     t: 0,
     endT: null,
     result: null,
+    clock: MATCH_CLOCK,
+    eclipse: false,
     mapId,
     gens: objs.gens,
     gates: objs.gates,
@@ -409,6 +412,7 @@ function matchView(match) {
     hooks: match.hooks,
     gensDone: match.gensDone,
     gatesPowered: match.gatesPowered,
+    clock: Math.max(0, match.clock || 0),
   };
 }
 
@@ -434,6 +438,7 @@ function giveBotBase(b) {
   b.pitch = -0.2;
   b.hp = 2; b.status = 'alive'; b.carrier = null;
   b.sprint = 100; b.attackCd = 0;
+  b.skill = b.skill != null ? b.skill : (0.35 + rand() * 0.65); // difficulty tier
   b.wx = null; b.wz = null; b.waitT = 0;
   b.ai = b.ai || { style: 'stealth', focus: null, retarget: Date.now(), cd: Date.now(), waitT: 0 };
 }
@@ -474,7 +479,7 @@ function spawnBotsToFill() {
       vy: 0, jumpT: 0, keys: new Set(), inputBuffer: [],
       lastInputAt: now, flags: { hits: 0, lastWindow: 0, count: 0, badJson: 0 },
       lastChatAt: 0, lastPing: now, kickT: 0,
-      bot: true, ai: { style: rint(1, 2) === 1 ? 'stealth' : 'rush', focus: null, retarget: now, cd: now, waitT: 0 }, wc: 0,
+      bot: true, skill: 0.35 + rand() * 0.65, ai: { style: rint(1, 2) === 1 ? 'stealth' : 'rush', focus: null, retarget: now, cd: now, waitT: 0 }, wc: 0,
     };
     giveBotBase(b);
     players.set(b.id, b);
@@ -601,8 +606,11 @@ setInterval(() => {
 
 function simulateMatch(match) {
   match.t += dt;
+  match.clock = Math.max(0, match.clock - dt);
   const killer = match.killer;
   const survs = match.survivors;
+
+  if (match.clock <= 0) eclipseEnd(match);
 
   // players in match: process input (one buffered input per tick max, so floods can't speed anyone)
   for (const p of match.players) {
@@ -730,16 +738,24 @@ function driveBot(p, match) {
     // killer: chase & attack nearest survivor, sprint when close
     const s = aiNearestSurvivor(p, match);
     const speed = p.sprint > 5 ? 11.5 : 8.5;
+    const sk = p.skill || 0.5;
     if (s) {
-      walkTo(p, s.x, s.z);
-      const d = dist2(p, s);
-      if (d <= 2.7 * 2.7) {
-        const facing = FWD(p.yaw);
-        const dx = s.x - p.x, dz = s.z - p.z;
-        const dl = Math.hypot(dx, dz) || 1;
-        if (dx / dl * facing.x + dz / dl * facing.z > 0.5) { p.keys.add('m1'); }
+      // skilled killers commit harder to the chase; weak ones drift to their focus more
+      const commit = rand() < 0.35 + sk * 0.4;
+      if (commit || !a.focus) {
+        walkTo(p, s.x, s.z);
+        const d = dist2(p, s);
+        if (d <= (2.7 + sk * 0.6) * (2.7 + sk * 0.6)) {
+          const facing = FWD(p.yaw);
+          const dx = s.x - p.x, dz = s.z - p.z;
+          const dl = Math.hypot(dx, dz) || 1;
+          if (dx / dl * facing.x + dz / dl * facing.z > (1.15 - sk * 0.75)) p.keys.add('m1'); // sharper aim at higher skill
+        }
+        if (d < (12 + sk * 6) * (12 + sk * 6)) p.keys.add('shift');
+      } else if (a.focus) {
+        p.sprint *= 0.94;
+        walkTo(p, a.focus.x, a.focus.z);
       }
-      if (d < 15 * 15) p.keys.add('shift');
     } else if (a.focus) {
       // patrol the learned hot generator
       p.sprint *= 0.94;
@@ -760,14 +776,14 @@ function driveBot(p, match) {
         const g = match.gens.find(g2 => g2.id === goal.id);
         if (g) { g.heat = (g.heat || 0) + dt * 8; }
         a.waitT = (a.waitT || 0) + 1;
-        if (a.waitT > 140) { a.waitT = 0; reprioritizeGen(p, match, a); }
+        if (a.waitT > (150 - (p.skill || 0.5) * 50)) { a.waitT = 0; reprioritizeGen(p, match, a); }
       } else {
         walkTo(p, goal.x, goal.z);
       }
     } else if (goal.kind === 'gate') {
       const gate = match.gates.find(g2 => g2.id === goal.id);
       if (!gate || gate.open) { a.focus = null; }
-      else if (gd <= 2.5 * 2.5) { p.keys = new Set(['e']); a.waitT = (a.waitT || 0) + 1; if (a.waitT > 180) { a.focus = null; reprioritizeGate(p, match, a); } }
+      else if (gd <= 2.5 * 2.5) { p.keys = new Set(['e']); a.waitT = (a.waitT || 0) + 1; if (a.waitT > (190 - (p.skill || 0.5) * 60)) { a.focus = null; reprioritizeGate(p, match, a); } }
       else walkTo(p, gate.x, gate.z);
     } else {
       walkTo(p, goal.x, goal.z);
@@ -874,6 +890,16 @@ function escapeSurvivor(match, p) {
   log('ESCAPE', match.id, p.name);
 }
 
+function eclipseEnd(match) {
+  if (match.eclipse) return;
+  match.eclipse = true;
+  for (const s of match.survivors) {
+    if (players.has(s.id) && s.state === 'match' && s.status !== 'dead') escapeSurvivor(match, s);
+  }
+  broadcastToast('THE ECLIPSE BLINKS — survivors flee the shattered night.');
+  log('ECLIPSE', match.id, `${match.survivorsEscaped.length} fled the eclipse`);
+}
+
 function checkMatchEnd(match) {
   const aliveorwaiting = match.survivors.filter(s => players.has(s.id) && s.state === 'match' && (s.status === 'alive' || s.status === 'injured' || s.status === 'downed'));
   const killerGone = !players.has(match.killer.id) || match.killer.state !== 'match';
@@ -907,7 +933,7 @@ function checkMatchEnd(match) {
     }
     save('stats.json', stats, true);
 
-    match.result = { winner, esc, kills: k, survivors: match.survivors.length, killer: match.killer.name };
+    match.result = { winner, esc, kills: k, survivors: match.survivors.length, killer: match.killer.name, map: MAPS[match.mapId] ? MAPS[match.mapId].name : match.mapId, duration: Math.round(match.t), eclipse: match.eclipse, escaped: match.survivorsEscaped.slice(), sacrifices: match.sacrifices.map(s => s.name) };
     match.state = 'done';
     for (const p of match.players) if (players.has(p.id)) {
       const mine = p === match.killer
