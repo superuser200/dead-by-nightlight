@@ -447,7 +447,7 @@ function giveBotBase(b) {
 
 function countActiveBots() {
   let n = 0;
-  for (const p of players.values()) if (p.bot) n++;
+  for (const p of players.values()) if (p.bot && (p.queued || p.state === 'match')) n++;
   return n;
 }
 
@@ -469,6 +469,12 @@ function spawnBotsToFill() {
   if (players.size >= 10) return;
   // only fill when a human is actually waiting in queue
   if (!Array.from(queue).some(p => !p.bot)) return;
+  // idle (hub) bots re-join the queue to fill a waiting human's match
+  for (const p of players.values()) {
+    if (!p.bot || p.queued || p.state !== 'hub') continue;
+    p.lastPing = now;
+    onQueue(p, true);
+  }
   let want = Math.max(0, 4 - queue.length);
   want = Math.min(want, MAX_BOTS - countActiveBots());
   if (want <= 0) return;
