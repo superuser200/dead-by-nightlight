@@ -21,6 +21,9 @@ input:focus { border-color: #58637e; }
 
 .err { color: #ff7a6e; font-size: 13px; min-height: 18px; margin-top: 8px; }
 
+.discord-link { display: inline-block; margin-top: 14px; padding: 10px 20px; background: #5865F2; color: #fff; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600; letter-spacing: .5px; transition: background .2s; }
+.discord-link:hover { background: #4752c4; }
+
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
 #topbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { background: rgba(8,13,24,.78); border: 1px solid #2a3856; border-radius: 8px; padding: 6px 12px; font-size: 12px; letter-spacing: .4px; }
