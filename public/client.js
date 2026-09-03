@@ -13,18 +13,40 @@ let ws = null;
 let selfId = null, selfName = null, isAdmin = false;
 let role = null;             // 'killer' | 'survivor' | hub
 let my = { id: null, x: 0, y: 0, z: 0, yaw: 0, hp: 2, status: 'alive', sprint: 100 };
+
+// survivor outfits (mirrors server OUTfits)
+const OUTfits = [
+  { name: 'Ranger',   body: 0x2f7f8f, skin: 0xd9b48f, accent: 0x26303f, hair: 0x5a3b26 },
+  { name: 'Ghost',    body: 0x9aa2b8, skin: 0xe6d7c0, accent: 0x6d7790, hair: 0xf2e9d8 },
+  { name: 'Crimson',  body: 0x8f2f3a, skin: 0xd9b48f, accent: 0x3a1f24, hair: 0x2a1a16 },
+  { name: 'Jade',     body: 0x2f7f4f, skin: 0xd9b48f, accent: 0x1f3a2c, hair: 0x3a2a1a },
+  { name: 'Amber',    body: 0x7f6a2f, skin: 0xcfae8b, accent: 0x3a3420, hair: 0x1c1c1c },
+  { name: 'Violet',   body: 0x5a3f8f, skin: 0xd0c0d8, accent: 0x2c1f3a, hair: 0x4a3a6d },
+  { name: 'Ash',      body: 0x5f5f6d, skin: 0xbfae9a, accent: 0x303038, hair: 0x8a8a98 },
+  { name: 'Warden',   body: 0x3f4a5a, skin: 0xd9b48f, accent: 0x262e3a, hair: 0x6d5438 },
+];
+
+// killer archetypes (mirrors server KILLERS) — used for looks; stats come from server
+const KILLERS = {
+  ravager: { name: 'The Ravager', body: 0x7a1f18, skin: 0x3a2a20, accent: 0xff2a0a, scale: 1.3, weapon: 'cleaver' },
+  brute:   { name: 'The Brute',   body: 0x3a3a22, skin: 0x2a241a, accent: 0xffb01a, scale: 1.55, weapon: 'maul' },
+  whisper: { name: 'The Whisper', body: 0x1f2f4f, skin: 0xbfe3ff, accent: 0x6fc9ff, scale: 1.15, weapon: 'sickle' },
+  umbra:   { name: 'The Umbra',   body: 0x241a30, skin: 0x2a2536, accent: 0xbf5dff, scale: 1.35, weapon: 'blade' },
+};
 let matchMap = null;         // { gens, gates, hooks }
 let matchState = 'hub';      // 'hub' | 'match' | 'done'
+let matchKillerId = null;
 let hubPlayers = [];
 let matchPlayers = [];
 let queueSize = 0, matchesActive = 0;
 let lastPing = { rtt: null };
 let camFollowId = null;
+let pickedOutfit = 0;
 
 function connect(token) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('name').value.trim(), admin: token || '' }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('name').value.trim(), outfit: pickedOutfit, admin: token || '' }));
   ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch { } };
   ws.onclose = () => {
     toast('Connection lost. Refresh to rejoin.', 'bad');
@@ -61,13 +83,13 @@ function handle(msg) {
       else if (msg.type === 'match') { matchState = msg.state; matchMap = msg.map; matchPlayers = msg.players; ifMenu(); }
       break;
     case 'matchStart':
-      role = msg.match.role; matchMap = msg.match.map; matchState = 'running';
+      role = msg.match.role; matchMap = msg.match.map; matchState = 'running'; matchKillerId = msg.match.killerId || 'ravager';
       enterMatch(); showSplash(matchMap, role);
       if (msg.match.role === 'killer') sfx('sting');
       toast(role === 'killer' ? 'You are THE KILLER. Hunt them all.' : 'You are a SURVIVOR. Repair 5 generators & escape!', role === 'killer' ? 'bad' : 'good');
       break;
     case 'returnHub':
-      role = null; matchState = 'hub'; matchMap = null; matchPlayers = [];
+      role = null; matchState = 'hub'; matchMap = null; matchPlayers = []; matchKillerId = null;
       if (hubCount) { clearInterval(hubCount); hubCount = null; }
       hideSplash(); leaveMatch(); toast('Back at the survivor hub.');
       break;
@@ -102,6 +124,7 @@ const THEMES = {
   hollow: { floor: 0x141a26, grid: 0x1c2434, tree: [0x16212e, 0x1c3324, 0x2a3440] },
   farm:   { floor: 0x151b10, grid: 0x202a18, tree: [0x1c2a16, 0x223820, 0x3a3320] },
   graveyard: { floor: 0x161722, grid: 0x22222f, tree: [0x1d1f2c, 0x2a2b3a, 0x34323f] },
+  asylum: { floor: 0x1a1620, grid: 0x282030, tree: [0x1f1830, 0x2a2040, 0x352e2e] },
 };
 
 function start() {
@@ -287,9 +310,11 @@ function ensurePlayer(p) {
   let entry = playerMeshes.get(p.id);
   if (entry) return entry;
   const isKiller = p.role === 'killer';
+  const killer = isKiller ? (KILLERS[matchKillerId] || KILLERS.ravager) : null;
+  const outfit = OUTfits[p.outfit] || OUTfits[0];
+  const bodyCol = isKiller ? killer.body : outfit.body;
+  const skinCol = isKiller ? killer.skin : outfit.skin;
   const group = new THREE.Group();
-  const bodyCol = isKiller ? 0x7a1f18 : 0x2f7f8f;
-  const skinCol = isKiller ? 0x3a2a20 : 0xd9b48f;
 
   const limb = (mat) => {
     const m = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.55, 8), mat);
@@ -301,8 +326,8 @@ function ensurePlayer(p) {
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshLambertMaterial({ color: skinCol }));
   head.position.y = 1.68;
 
-  const armMat = new THREE.MeshLambertMaterial({ color: bodyCol });
-  const legMat = new THREE.MeshLambertMaterial({ color: 0x26303f });
+  const armMat = new THREE.MeshLambertMaterial({ color: isKiller ? killer.skin : outfit.accent });
+  const legMat = new THREE.MeshLambertMaterial({ color: isKiller ? 0x16161c : outfit.accent });
   const armL = limb(armMat), armR = limb(armMat);
   armL.position.x = -0.42; armR.position.x = 0.42;
   armL.position.y = 1.62; armR.position.y = 1.62;
@@ -311,20 +336,53 @@ function ensurePlayer(p) {
   legL.position.y = 0.68; legR.position.y = 0.68;
 
   group.add(body, head, armL, armR, legL, legR);
-  const name = makeNameSprite(p.name);
-  group.add(name);
 
   let baseScale = 1;
   if (isKiller) {
-    baseScale = 1.3;
-    const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a0a }));
+    baseScale = killer.scale;
+    // glowing eyes
+    const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.05), new THREE.MeshBasicMaterial({ color: killer.accent }));
     const e2 = e1.clone();
     e1.position.set(-0.11, 1.72, 0.23); e2.position.set(0.11, 1.72, 0.23);
     group.add(e1); group.add(e2);
-    head.material = new THREE.MeshLambertMaterial({ color: 0x101014 });
+    // killer mask/head shape
+    head.material = new THREE.MeshLambertMaterial({ color: killer.skin });
     head.scale.setScalar(1.15);
-    name.position.y = 3.05;
+    // weapon — held in right hand, angled forward
+    const weapon = new THREE.Group();
+    const wMat = new THREE.MeshLambertMaterial({ color: 0x2a2a34 });
+    if (killer.weapon === 'maul') {
+      const h1 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0x4a3a2a }));
+      h1.rotation.z = Math.PI / 2; h1.position.set(0.5, 0, 0);
+      const h2 = h1.clone(); h2.rotation.z = Math.PI / 2; h2.position.set(0.5, 0, 0);
+      weapon.add(h1);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 6), wMat);
+      st.rotation.z = Math.PI / 2; weapon.add(st);
+    } else if (killer.weapon === 'sickle') {
+      const bl = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.07, 6, 10), new THREE.MeshLambertMaterial({ color: 0xa8b2c4 }));
+      bl.position.set(0.9, 0.25, 0);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 6), wMat);
+      st.rotation.z = Math.PI / 2; weapon.add(bl, st);
+    } else if (killer.weapon === 'blade') {
+      const bl = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.06), new THREE.MeshLambertMaterial({ color: 0xbfa8e0 }));
+      bl.position.set(0.8, 0.1, 0);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6), wMat);
+      st.rotation.z = Math.PI / 2; weapon.add(bl, st);
+    } else { // cleaver
+      const bl = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.07), new THREE.MeshLambertMaterial({ color: 0xc9ccd6 }));
+      bl.position.set(0.55, 0.15, 0);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6), wMat);
+      st.rotation.z = Math.PI / 2; weapon.add(bl, st);
+    }
+    weapon.position.set(0.5, 1.35, 0.2);
+    weapon.rotation.z = -0.6;
+    armR.add(weapon);
+    name.position.y = 3.4;
   } else {
+    // survivor hair / hood piece — a small cap on top of the head
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: outfit.hair }));
+    hair.position.y = 1.78;
+    group.add(hair);
     name.position.y = 2.35;
   }
   group.scale.set(baseScale, baseScale, baseScale);
@@ -643,7 +701,8 @@ function updateHud() {
       bars('hp', 0);
     } else {
       const powered = matchMap && matchMap.gatesPowered;
-      setChip('obj', powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`);
+      const kname = (KILLERS[matchKillerId] || {}).name;
+      setChip('obj', (powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`) + (kname ? `  |  ${kname} hunts` : ''));
       setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}`);
       bars('hp', (my.hp || 0) / 2);
     }
@@ -725,6 +784,7 @@ function pointInRect(p, r) { return p.x >= r.x && p.x <= r.x + r.w && p.z >= r.z
 /* ---------------- match/player state ---------------- */
 function ifMenu() {
   if (matchState !== 'match') return;
+  if (matchMap && matchMap.killerId) matchKillerId = matchMap.killerId;
   // refresh my info (position comes from server so interactions stay honest)
   const m = matchPlayers.find(p => p.id === selfId);
   if (m) {
@@ -819,3 +879,23 @@ $('join').addEventListener('click', () => {
   connect($('adminkey').value.trim());
 });
 ['name', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
+
+// outfit picker
+(function buildOutfitPicker() {
+  const wrap = $('outfit-swatches');
+  OUTfits.forEach((o, i) => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'swatch' + (i === pickedOutfit ? ' sel' : '');
+    sw.style.background = '#' + ('00000' + o.body.toString(16)).slice(-6);
+    sw.title = o.name;
+    sw.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pickedOutfit = i;
+      document.querySelectorAll('#outfit-swatches .swatch').forEach((x) => x.classList.remove('sel'));
+      sw.classList.add('sel');
+      $('outfit-label').querySelector('b').textContent = o.name;
+    });
+    wrap.appendChild(sw);
+  });
+})();

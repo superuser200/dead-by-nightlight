@@ -34,6 +34,26 @@ const rand = () => Math.random();
 const rint = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
 const hShake = (s) => createHash('sha256').update(s).digest('hex');
 
+// Survivor outfits — index = outfit ID (sent with join, random for bots)
+const OUTfits = [
+  { name: 'Ranger',   body: 0x2f7f8f, skin: 0xd9b48f, accent: 0x26303f, hair: 0x5a3b26 }, // 0 default teal
+  { name: 'Ghost',    body: 0x9aa2b8, skin: 0xe6d7c0, accent: 0x6d7790, hair: 0xf2e9d8 },
+  { name: 'Crimson',  body: 0x8f2f3a, skin: 0xd9b48f, accent: 0x3a1f24, hair: 0x2a1a16 },
+  { name: 'Jade',     body: 0x2f7f4f, skin: 0xd9b48f, accent: 0x1f3a2c, hair: 0x3a2a1a },
+  { name: 'Amber',    body: 0x7f6a2f, skin: 0xcfae8b, accent: 0x3a3420, hair: 0x1c1c1c },
+  { name: 'Violet',   body: 0x5a3f8f, skin: 0xd0c0d8, accent: 0x2c1f3a, hair: 0x4a3a6d },
+  { name: 'Ash',      body: 0x5f5f6d, skin: 0xbfae9a, accent: 0x303038, hair: 0x8a8a98 },
+  { name: 'Warden',   body: 0x3f4a5a, skin: 0xd9b48f, accent: 0x262e3a, hair: 0x6d5438 },
+];
+
+// Killer archetypes — one is chosen per match; each has a distinct look + a small playstyle twist
+const KILLERS = [
+  { id: 'ravager', name: 'The Ravager', body: 0x7a1f18, skin: 0x3a2a20, accent: 0xff2a0a, scale: 1.3,  speed: 1.0, lungedmg: 1, aggro: 0, weapon: 'cleaver' },
+  { id: 'brute',   name: 'The Brute',   body: 0x3a3a22, skin: 0x2a241a, accent: 0xffb01a, scale: 1.55, speed: 0.92, lungedmg: 1.3, aggro: 0.1, weapon: 'maul' },
+  { id: 'whisper', name: 'The Whisper', body: 0x1f2f4f, skin: 0xbfe3ff, accent: 0x6fc9ff, scale: 1.15, speed: 1.12, lungedmg: 0.85, aggro: -0.1, weapon: 'sickle' },
+  { id: 'umbra',   name: 'The Umbra',   body: 0x241a30, skin: 0x2a2536, accent: 0xbf5dff, scale: 1.35, speed: 1.05, lungedmg: 1.1, aggro: 0.05, weapon: 'blade' },
+];
+
 /* ----------------------------------------------------------------------------
  * Persistence
  * -------------------------------------------------------------------------*/
@@ -136,6 +156,7 @@ wss.on('connection', (ws, req) => {
     bot: false,               // AI player
     ai: {},                   // per-bot state
     wc: 0,                    // wall-collision lag counter
+    outfit: 0,
   };
   clientFor.set(ws, p);
   p.ws.on('message', (data) => { try { onMessage(p, data.toString()); } catch (err) { log('MSGERR', 'ws/' + (p.name || p.id), err.message); } });
@@ -193,6 +214,7 @@ function onJoin(p, msg) {
   p.status = 'alive';
   p.hp = 2;
   p.carrier = null;
+  p.outfit = Math.min(Math.max(parseInt(msg.outfit, 10) || 0, 0), OUTfits.length - 1);
   if (msg.admin && typeof msg.admin === 'string' && hShake(msg.admin) === hShake(ADMIN_TOKEN)) {
     p.admin = true;
   }
@@ -295,6 +317,7 @@ function startMatch(group) {
   const killerIdx = Math.floor(rand() * group.length);
   const mapId = Object.keys(MAPS)[Math.floor(rand() * Object.keys(MAPS).length)];
   const objs = mapObjs(mapId);
+  const killerArche = KILLERS[Math.floor(rand() * KILLERS.length)];
   const match = {
     id: 'M' + (++matchIdCounter),
     state: 'running',
@@ -304,6 +327,7 @@ function startMatch(group) {
     clock: MATCH_CLOCK,
     eclipse: false,
     mapId,
+    killerId: killerArche.id,
     gens: objs.gens,
     gates: objs.gates,
     hooks: objs.hooks,
@@ -337,7 +361,7 @@ function startMatch(group) {
     p.escaped = false;
     p.kills = 0;
     p.sac = 0;
-    send(p, { t: 'matchStart', match: { id: match.id, role: p.role, map: matchView(match) } });
+    send(p, { t: 'matchStart', match: { id: match.id, role: p.role, killerId: match.killerId, map: matchView(match) } });
   });
 
   matches.set(match.id, match);
@@ -380,6 +404,17 @@ const MAPS = {
       [-38, -20], [20, 30], [-14, -30], [34, 8], [-30, -6], [2, 32], [38, -28], [-4, 0], [6, -6], [-26, 26], [24, -12], [-40, 34], [40, 22], [0, -36],
     ],
   },
+  asylum: {
+    name: 'The Asylum',
+    gens: [[-10, -10], [26, -18], [-30, 22], [16, 30], [-24, -32], [36, 4], [0, 26], [30, -34], [-38, -6], [6, -30]],
+    gates: [
+      { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
+      { id: 'B', x: 43.8, z: 0, dir: 'east', zone: { rect: { x: 43.5, z: -4, w: 2.5, d: 8 } } },
+    ],
+    hooks: [
+      [-20, 18], [28, -10], [-34, -24], [4, 38], [32, 26], [-16, -18], [40, -34], [-40, 14], [0, -4], [22, 10], [-6, 24], [36, -2], [-30, 38], [14, -38],
+    ],
+  },
 };
 
 function mapObjs(mapId) {
@@ -414,6 +449,7 @@ function matchView(match) {
     gensDone: match.gensDone,
     gatesPowered: match.gatesPowered,
     clock: Math.max(0, match.clock || 0),
+    killerId: match.killerId || 'ravager',
   };
 }
 
@@ -488,6 +524,7 @@ function spawnBotsToFill() {
       lastInputAt: now, flags: { hits: 0, lastWindow: 0, count: 0, badJson: 0 },
       lastChatAt: 0, lastPing: now, kickT: 0,
       bot: true, skill: 0.35 + rand() * 0.65, ai: { style: rint(1, 2) === 1 ? 'stealth' : 'rush', focus: null, retarget: now, cd: now, waitT: 0 }, wc: 0,
+      outfit: rint(0, OUTfits.length - 1),
     };
     giveBotBase(b);
     players.set(b.id, b);
@@ -645,18 +682,19 @@ function simulateMatch(match) {
     }
 
     if (p === killer) {
+      const kh = KILLERS.find(k => k.id === match.killerId) || KILLERS[0];
       const sprinting = p.keys.has('shift');
       if (sprinting) p.sprint = Math.max(0, p.sprint - dt * 14);
       else p.sprint = Math.min(100, p.sprint + dt * 30);
       const canSprint = p.sprint > 5 && !p.carrier;
-      let speed = p.carrier ? 6.2 : 8.5;
-      if (canSprint) speed = 11.5;
+      let speed = p.carrier ? 6.2 : 8.5 * (kh.speed || 1);
+      if (canSprint) speed = 11.5 * (kh.speed || 1);
       p.lungeT = Math.max(0, p.lungeT - dt);
       p.attackCd = Math.max(0, p.attackCd - dt);
       if (p.keys.has('m1') && p.attackCd <= 0) {
-        p.attackCd = 2.2;
+        p.attackCd = kh.id === 'brute' ? 2.6 : 2.2;
         p.lungeT = 0.22;
-        doAttack(match, p);
+        doAttack(match, p, kh);
       }
       const lungeMul = p.lungeT > 0 ? 1.7 : 1;
       moveEntity(p, speed * lungeMul, dt);
@@ -760,6 +798,7 @@ function driveBot(p, match) {
   if (p.role === 'killer') {
     // killer: chase & attack, carry the downed to a hook, sacrifice
     const sk = p.skill || 0.5;
+    const kh = KILLERS.find(k => k.id === match.killerId) || KILLERS[0];
     const sNear = aiNearestSurvivor(p, match);
     const sDown = aiNearestDowned(p, match);
     if (p.carrier) {
@@ -780,10 +819,10 @@ function driveBot(p, match) {
     if (sDown && dist2(p, sDown) <= 2.4 * 2.4) { p.keys.add('e'); return; }
     if (sDown) { walkTo(p, sDown.x, sDown.z); return; }
     const s = sNear;
-    const speed = p.sprint > 5 ? 11.5 : 8.5;
+    const speed = (p.sprint > 5 ? 11.5 : 8.5) * (kh.speed || 1);
     if (s && s.status !== 'downed') {
       // skilled killers commit harder to the chase; weak ones drift to their focus more
-      const commit = rand() < 0.35 + sk * 0.4;
+      const commit = rand() < 0.35 + sk * 0.4 + (kh.aggro || 0);
       if (commit || !a.focus) {
         walkTo(p, s.x, s.z);
         const d = dist2(p, s);
@@ -881,27 +920,33 @@ function moveEntity(p, speed, dt) {
   p.z = clamp(p.z + mz * speed * dt, -bounds, bounds);
 }
 
-function doAttack(match, killer) {
+function doAttack(match, killer, kh) {
+  kh = kh || KILLERS[0];
   const now = Date.now();
   if (now - killer.lastHitAt < 250) return;
   killer.lastHitAt = now;
   const facing = FWD(killer.yaw);
+  const range = kh.lungedmg != null ? 2.4 + kh.lungedmg * 0.5 : 2.7;
+  const injures = kh.lungedmg != null; // some killers down in fewer hits
   for (const s of match.survivors) {
     if (!players.has(s.id) || s.state !== 'match') continue;
     if (s.status === 'escaped' || s.status === 'dead') continue;
     if (s === killer) continue;
     const dx = s.x - killer.x, dz = s.z - killer.z;
     const d = Math.hypot(dx, dz);
-    if (d > 2.7) continue;
+    if (d > range) continue;
     // cone check (facing within ~70 degrees)
     const nx = dx / (d || 1), nz = dz / (d || 1);
     if (nx * facing.x + nz * facing.z < 0.34) continue;
     if (s.status === 'injured') { killSurvivor(match, s, 'downed', killer); }
     else if (s.status === 'alive') {
-      s.status = 'injured';
-      killer.kills += 1;
-      send(killer, { t: 'toast', msg: `You wounded ${s.name}` });
-      send(s, { t: 'toast', msg: `${killer.name} wounded you!` });
+      if ((kh.lungedmg || 1) >= 1.3) { killSurvivor(match, s, 'downed', killer); } // Brute/Umbra down in one
+      else {
+        s.status = 'injured';
+        killer.kills += 1;
+        send(killer, { t: 'toast', msg: `You wounded ${s.name}` });
+        send(s, { t: 'toast', msg: `${killer.name} wounded you!` });
+      }
     }
   }
 }
@@ -1026,6 +1071,7 @@ function broadcastMatch(match) {
     obj.players.push({
       id: p.id, name: p.name, role: p.role, x: p.x, y: p.y, z: p.z, yaw: p.yaw,
       hp: p.hp, status: p.status, carrier: p.carrier ? { id: p.carrier } : null,
+      outfit: p.outfit || 0,
       sprint: p.role === 'killer' ? p.sprint : undefined,
       progress: p.reviveT ? p.reviveT : undefined,
     });
