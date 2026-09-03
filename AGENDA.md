@@ -19,6 +19,10 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
 ## HOW TO VERIFY
 - Local: `$env:ADMIN_TOKEN="smoketest"; $env:NODE_ENV="development"`, start
   `server/server.js`, run `node test/smoke.js` (13 checks must all PASS).
+- Client regressions: `node test/client-load.js` (7 checks) — loads the real
+  client.js headlessly and asserts it initializes + ensurePlayer builds both roles.
+  ALWAYS run this too (the server smoke suite can never catch client load/render
+  crashes like the pickedOutfit / name-sprite bugs).
 - Then `NODE_ENV=production` for a live-feel match (bots turn on via IS_LIVE gate).
 - Push commit → wait ~80-90s → check `/healthz` and fetch `/client.js` / `/`
   to confirm the new markers are live.
