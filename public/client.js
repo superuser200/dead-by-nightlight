@@ -416,9 +416,12 @@ function ensurePlayer(p) {
   const armL = limb(armMat), armR = limb(armMat);
   armL.position.x = -0.42; armR.position.x = 0.42;
   armL.position.y = 1.62; armR.position.y = 1.62;
-  const legL = limb(legMat), legR = limb(legMat);
-  legL.position.x = -0.17; legR.position.x = 0.17;
-  legL.position.y = 0.68; legR.position.y = 0.68;
+  // legs — wider apart and slightly thicker so both legs are clearly visible
+  const legGeo = new THREE.CylinderGeometry(0.14, 0.11, 0.62, 8);
+  const legL = new THREE.Mesh(legGeo, legMat), legR = new THREE.Mesh(legGeo, legMat);
+  legL.position.x = -0.24; legR.position.x = 0.24;
+  legL.position.y = 0.66; legR.position.y = 0.66;
+  legL.castShadow = true; legR.castShadow = true;
 
   group.add(body, head, armL, armR, legL, legR);
 
