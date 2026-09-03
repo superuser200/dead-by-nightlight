@@ -41,6 +41,7 @@ function handle(msg) {
         selfId = msg.id; selfName = msg.name; isAdmin = !!msg.admin;
         $('login').style.display = 'none';
         $('hint').style.display = 'block';
+        if (document.activeElement) document.activeElement.blur();
         start();
       } else $('authmsg').textContent = msg.msg;
       break;
@@ -463,7 +464,11 @@ document.addEventListener('mousedown', (e) => {
 });
 document.addEventListener('mouseup', (e) => { if (e.button === 0) keys.delete('m1'); });
 
-function isTyping() { return document.activeElement === $('chatinput') || document.activeElement === $('name'); }
+function isTyping() {
+  const a = document.activeElement;
+  if (selfId && matchState !== 'hub') return false; // in a match, movement keys always work
+  return a === $('chatinput') || a === $('name') || a === $('adminkey');
+}
 
 document.addEventListener('keydown', (e) => {
   if (isTyping()) return;
