@@ -465,8 +465,8 @@ function ensurePlayer(p) {
       const st = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6), wMat);
       st.rotation.z = Math.PI / 2; weapon.add(bl, st);
     }
-    weapon.position.set(0.5, 1.35, 0.2);
-    weapon.rotation.z = -0.6;
+    weapon.position.set(0.0, -0.15, 0.35);
+    weapon.rotation.z = -0.35;
     armR.add(weapon);
     name.position.y = 3.4;
   } else {
