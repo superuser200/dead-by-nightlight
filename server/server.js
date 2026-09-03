@@ -309,6 +309,14 @@ function broadcastQueueInfo() {
   for (const p of players.values()) if (p.state === 'hub') send(p, msg);
 }
 
+// Survivor items — spawn at match start, one-use pickups at random spots
+const ITEMS = [
+  { id: 'medkit',   name: 'Medkit',    color: 0x3dff7a, emoji: '+' },
+  { id: 'toolbox',  name: 'Toolbox',   color: 0xffd24e, emoji: 'W' },
+  { id: 'flash',    name: 'Flashlight',color: 0xd9f2ff, emoji: 'L' },
+  { id: 'key',      name: 'Hatch Key', color: 0xbf5dff, emoji: 'K' },
+];
+
 /* ----------------------------------------------------------------------------
  * Match
  * -------------------------------------------------------------------------*/
@@ -336,6 +344,8 @@ function startMatch(group) {
     gensDone: 0,
     gatesPowered: false,
     killerKills: 0,
+    items: spawnItems(objs, group.length),
+    keys: [{ id: 'hatch', x: rint(-34, 34), z: rint(-34, 34), open: false }],
   };
   match.players = group;
   match.killer = group[killerIdx];
@@ -361,6 +371,7 @@ function startMatch(group) {
     p.escaped = false;
     p.kills = 0;
     p.sac = 0;
+    p.item = null;
     send(p, { t: 'matchStart', match: { id: match.id, role: p.role, killerId: match.killerId, map: matchView(match) } });
   });
 
@@ -427,6 +438,22 @@ function mapObjs(mapId) {
   const hooks = mp.hooks.map(([x, z]) => ({ x, z }));
   return { gens, gates, hooks };
 }
+// scatter a handful of one-use item pickups at random open positions
+function spawnItems(objs, nplayers) {
+  const items = [];
+  const count = Math.min(8, 4 + nplayers);
+  let guard = 0;
+  while (items.length < count && guard++ < 200) {
+    const x = rint(-38, 38), z = rint(-38, 38);
+    // keep clear of gens/hooks so pickups sit at the edges
+    const nearGen = objs.gens.some(g => dist2({ x, z }, g) < 8 * 8);
+    const nearHook = objs.hooks.some(h => dist2({ x, z }, h) < 5 * 5);
+    if (nearGen || nearHook) continue;
+    const def = ITEMS[Math.floor(rand() * ITEMS.length)];
+    items.push({ id: 'i' + items.length, type: def.id, name: def.name, x, z, taken: false });
+  }
+  return items;
+}
 function ringSpawns(n) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -450,6 +477,8 @@ function matchView(match) {
     gatesPowered: match.gatesPowered,
     clock: Math.max(0, match.clock || 0),
     killerId: match.killerId || 'ravager',
+    items: (match.items || []).map(i => ({ id: i.id, type: i.type, name: i.name, x: i.x, z: i.z, taken: i.taken })),
+    keys: (match.keys || []).map(k => ({ id: k.id, x: k.x, z: k.z, open: k.open })),
   };
 }
 
@@ -683,6 +712,8 @@ function simulateMatch(match) {
 
     if (p === killer) {
       const kh = KILLERS.find(k => k.id === match.killerId) || KILLERS[0];
+      p.stunT = Math.max(0, (p.stunT || 0) - dt);
+      if (p.stunT > 0) { moveEntity(p, 0, dt); continue; } // stunned by flashlight
       const sprinting = p.keys.has('shift');
       if (sprinting) p.sprint = Math.max(0, p.sprint - dt * 14);
       else p.sprint = Math.min(100, p.sprint + dt * 30);
@@ -745,13 +776,30 @@ function simulateMatch(match) {
 
     const e = p.keys.has('e');
 
-    // repair generators
+    // pick up an item (E) if not already holding one
+    if (e && !p.item) {
+      const it = match.items.find(i => !i.taken && dist2(p, i) <= 2.0 * 2.0);
+      if (it) {
+        it.taken = true;
+        p.item = it.type;
+        send(p, { t: 'toast', msg: `Picked up ${it.name}! (E to use)` });
+        sfxBroadcast(p, 'pickup');
+      }
+    }
+    // use an item (E while holding one)
+    if (e && p.item && !p.carrier) {
+      const used = useItem(match, p, killer);
+      if (used) p.item = null;
+    }
+
+    // repair generators (toolbox makes you faster)
     if (e && p.status !== 'downed' && p.carrier == null) {
+      const tbc = p.item === 'toolbox' ? 1.9 : 1;
       for (const g of match.gens) {
         if (g.done) continue;
         if (dist2(p, g) <= 2.1 * 2.1) {
           const nearKiller = dist2(p, killer) <= 12 * 12;
-          g.prog += dt * (nearKiller ? 0.18 : 0.8);
+          g.prog += dt * (nearKiller ? 0.18 : 0.8) * tbc;
           g.prog = clamp(g.prog, 0, 1);
           if (g.prog >= 1 && !g.done) {
             g.done = true; match.gensDone += 1;
@@ -845,9 +893,18 @@ function driveBot(p, match) {
   } else {
     // survivor bot: head to goal, interact when close, escape when gates open
     if (p.status === 'downed') { p.keys.clear(); return; }
-    const myGoal = a.focus;
-    // if carried by killer (as a carried survivor is only if killer == this survivor's killer and killer.carrier==p) -> nothing
     if (p.carrier) { p.keys.clear(); return; }
+    // item logic: pick up a nearby untaken item, use medkit when hurt, use key at hatch
+    if (!p.item) {
+      const it = (match.items || []).find(i => !i.taken && dist2(p, i) <= 2.0 * 2.0 * 1.6);
+      if (it) { p.keys.add('e'); p.keys.add('w'); return; }
+    } else if (p.item === 'medkit' && p.status === 'injured') { p.keys.add('e'); return; }
+    else if (p.item === 'key') {
+      const kk = match.keys && match.keys[0];
+      if (kk && dist2(p, kk) <= 2.4 * 2.4 * 1.6) { p.keys.add('e'); return; }
+      if (kk) { walkTo(p, kk.x, kk.z); return; }
+    }
+    const myGoal = a.focus;
     const goal = myGoal || { kind: 'gen', x: match.gens[0].x, z: match.gens[0].z };
     const gd = dist2(p, goal);
     if (goal.kind === 'gen') {
@@ -977,6 +1034,37 @@ function escapeSurvivor(match, p) {
   log('ESCAPE', match.id, p.name);
 }
 
+function sfxBroadcast(p, kind) { broadcast({ t: 'sfx', kind }); }
+
+function useItem(match, p, killer) {
+  switch (p.item) {
+    case 'medkit':
+      if (p.status === 'injured') { p.status = 'alive'; send(p, { t: 'toast', msg: 'Medkit healed your wounds.' }); return true; }
+      send(p, { t: 'toast', msg: 'You are not injured — medkit unused.' }); return false;
+    case 'toolbox':
+      // instant gen boost while holding: applied in repair branch via p.item check
+      send(p, { t: 'toast', msg: 'Toolbox: repairing much faster while held.' }); return false;
+    case 'flash':
+      if (killer && players.has(killer.id) && killer.state === 'match') {
+        killer.stunT = Math.max(killer.stunT || 0, 2.5);
+        killer.attackCd = Math.max(killer.attackCd || 0, 2.5);
+        broadcastToast(`${p.name} burns ${killer.name} with a flashlight!`);
+        send(p, { t: 'toast', msg: 'You blinded the killer!' });
+        return true;
+      }
+      return false;
+    case 'key':
+      if (match.keys && match.keys.length) {
+        const kk = match.keys[0];
+        if (dist2(p, kk) <= 2.4 * 2.4) { escapeSurvivor(match, p); return true; }
+        send(p, { t: 'toast', msg: 'Walk to the basement hatch and press E to unlock it.' }); return false;
+      }
+      send(p, { t: 'toast', msg: 'No hatch found this night.' }); return false;
+    default:
+      return true;
+  }
+}
+
 function eclipseEnd(match) {
   if (match.eclipse) return;
   match.eclipse = true;
@@ -1072,6 +1160,7 @@ function broadcastMatch(match) {
       id: p.id, name: p.name, role: p.role, x: p.x, y: p.y, z: p.z, yaw: p.yaw,
       hp: p.hp, status: p.status, carrier: p.carrier ? { id: p.carrier } : null,
       outfit: p.outfit || 0,
+      item: p.item || null,
       sprint: p.role === 'killer' ? p.sprint : undefined,
       progress: p.reviveT ? p.reviveT : undefined,
     });

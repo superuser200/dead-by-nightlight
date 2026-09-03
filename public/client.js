@@ -41,7 +41,8 @@ let matchPlayers = [];
 let queueSize = 0, matchesActive = 0;
 let lastPing = { rtt: null };
 let camFollowId = null;
-let pickedOutfit = 0;
+let pickItem = null;
+let myItem = null;
 
 function connect(token) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -106,6 +107,7 @@ function handle(msg) {
     case 'queueInfo': queueSize = msg.size; matchesActive = msg.matches; updateHud(); break;
     case 'ejected': sfx('sting'); toast(msg.msg, 'bad'); break;
     case 'pong': if (msg.ts) lastPing.rtt = performance.now() - Number(msg.ts); break;
+    case 'sfx': sfx(msg.kind === 'pickup' ? 'power' : 'sting'); break;
   }
 }
 
@@ -114,6 +116,7 @@ let scene, camera, renderer;
 let hubGroup = null, matchGroup = null;
 let playerMeshes = new Map();   // id -> {group, nameSprite, mats...}
 let genMeshes = new Map(), hookMeshes = new Map(), gateMeshes = new Map();
+let itemMeshes = new Map(), hatchMesh = null;
 let targetPos = new Map();      // id -> {x,z,y,yaw,status,carrier,hp}
 
 const isDowned = (s) => s === 'downed';
@@ -223,6 +226,21 @@ function enterMatch() {
     matchGroup.add(grp);
     gateMeshes.set(g.id, grp);
   }
+  // item pickups
+  for (const it of (matchMap.items || [])) {
+    const grp = itemGroup(it.type);
+    grp.position.set(it.x, 0, it.z);
+    matchGroup.add(grp);
+    itemMeshes.set(it.id, grp);
+  }
+  // hatch (for the Hatch Key)
+  if ((matchMap.keys || []).length) {
+    const k = matchMap.keys[0];
+    const grp = hatchGroup();
+    grp.position.set(k.x, 0, k.z);
+    matchGroup.add(grp);
+    hatchMesh = grp;
+  }
   $('mm').style.display = 'block';
 }
 
@@ -288,9 +306,37 @@ function leaveMatch() {
   if (matchGroup) { scene.remove(matchGroup); matchGroup = null; }
   playerMeshes.forEach((o) => scene.remove(o.group));
   playerMeshes.clear(); targetPos.clear();
+  itemMeshes.clear(); genMeshes.clear(); hookMeshes.clear(); gateMeshes.clear(); hatchMesh = null;
   $('mm').style.display = 'none';
   $('end').style.display = 'none';
   $('prompt').style.display = 'none';
+}
+
+// item colors for rendering
+const ITEM_COLORS = { medkit: 0x3dff7a, toolbox: 0xffd24e, flash: 0xd9f2ff, key: 0xbf5dff };
+function itemGroup(type) {
+  const g = new THREE.Group();
+  const col = ITEM_COLORS[type] || 0xffffff;
+  // floating glowing core
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), new THREE.MeshBasicMaterial({ color: col }));
+  core.position.y = 0.55;
+  // soft halo ring
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.05, 6, 14), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5 }));
+  ring.rotation.x = Math.PI / 2; ring.position.y = 0.55;
+  g.add(core); g.add(ring);
+  // small base pad
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.1, 8), new THREE.MeshLambertMaterial({ color: 0x22222a })).translateY(0.05));
+  g.userData.baseY = 0.55;
+  return g;
+}
+function hatchGroup() {
+  const g = new THREE.Group();
+  const cover = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.18, 1.6), new THREE.MeshLambertMaterial({ color: 0x3a3f4e }));
+  cover.position.y = 0.1;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.06, 6, 20), new THREE.MeshBasicMaterial({ color: 0xbf5dff }));
+  ring.rotation.x = Math.PI / 2; ring.position.y = 0.22;
+  g.add(cover, ring);
+  return g;
 }
 
 /* ---------------- player meshes ---------------- */
@@ -336,6 +382,9 @@ function ensurePlayer(p) {
   legL.position.y = 0.68; legR.position.y = 0.68;
 
   group.add(body, head, armL, armR, legL, legR);
+
+  const name = makeNameSprite(p.name);
+  group.add(name);
 
   let baseScale = 1;
   if (isKiller) {
@@ -490,6 +539,16 @@ function animate() {
     for (const g of matchMap.gates) {
       const gm = gateMeshes.get(g.id);
       if (gm) gm.rotation.y = g.open ? 0 : 0;
+    }
+    // item pickups: bobbing + hide if taken
+    if (matchMap.items) {
+      const t = performance.now() / 420;
+      for (const it of matchMap.items) {
+        const gm = itemMeshes.get(it.id);
+        if (!gm) continue;
+        gm.visible = !it.taken;
+        if (!it.taken) { gm.position.y = (it.id.charCodeAt(1) % 5) * 0.001; const by = 0.55 + Math.sin(t + it.x) * 0.12; gm.children[0].position.y = by; gm.children[1].position.y = by; }
+      }
     }
   }
 
@@ -703,7 +762,7 @@ function updateHud() {
       const powered = matchMap && matchMap.gatesPowered;
       const kname = (KILLERS[matchKillerId] || {}).name;
       setChip('obj', (powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`) + (kname ? `  |  ${kname} hunts` : ''));
-      setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}`);
+      setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}` + (myItem ? `  |  [E] ${myItem === 'medkit' ? 'Medkit' : myItem === 'toolbox' ? 'Toolbox' : myItem === 'flash' ? 'Flashlight' : 'Hatch Key'}` : ''));
       bars('hp', (my.hp || 0) / 2);
     }
   } else {
@@ -769,11 +828,18 @@ function updatePrompt() {
     if (!text) for (const g of matchMap.gens) if (!g.done && dist2(my, g) <= 2.1 * 2.1 * 1.4) text = 'Gate open — RUN!';
     if (!text) for (const g of matchMap.gates) if (!g.open && dist2(my, g) <= 2.3 * 2.3 * 1.9) text = `HOLD E to open gate ${g.id}…`;
   } else {
+    // nearest item pickup
+    if (!text) for (const it of (matchMap.items || [])) if (!it.taken && dist2(my, it) <= 2.0 * 2.0 * 1.5) text = `E to grab ${it.name}`;
+    if (!text) for (const pk of (matchMap.keys || [])) if (myItem === 'key' && !pk.open && dist2(my, pk) <= 2.4 * 2.4 * 1.4) text = 'E to unlock the hatch & escape!';
     for (const g of matchMap.gens) if (!g.done && dist2(my, g) <= 2.1 * 2.1 * 1.4) text = `HOLD E to repair generator… ${(g.prog * 100).toFixed(0)}%`;
     if (!text) for (const p of matchPlayers) if (p.id !== selfId && p.status === 'downed' && dist2(my, p) <= 2.2 * 2.2 * 1.4) {
       const prog = p.progress || 0;
       text = `HOLD E to revive ${p.name}… ${(prog / 5 * 100).toFixed(0)}%`;
     }
+  }
+  // held-item usage hint
+  if (role === 'survivor' && myItem && my.status !== 'downed' && my.status !== 'dead' && my.status !== 'escaped' && !text) {
+    text = 'E to use ' + (ITEM_COLORS[myItem] ? myItem : myItem) + (myItem === 'key' ? ' (at the hatch)' : '');
   }
   pr.style.display = text ? 'block' : 'none';
   if (text) pr.textContent = text;
@@ -791,6 +857,7 @@ function ifMenu() {
     const pprev = my.status, hprev = my.hp;
     my.hp = m.hp; my.status = m.status; my.sprint = m.sprint != null ? m.sprint : my.sprint;
     my.x = m.x; my.y = m.y; my.z = m.z;
+    myItem = m.item || null;
     if (m.role === 'survivor' && m.status !== pprev) {
       if (m.status === 'downed') { sfx('down'); hurtFlash(); }
       else if (m.status === 'injured' && hprev === 2) { sfx('hurt'); hurtFlash(); }
