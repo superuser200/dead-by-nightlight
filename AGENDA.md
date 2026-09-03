@@ -84,6 +84,18 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   a live match whenever a bot escaped (bots fill matches, so this hit often). Added
   `b.stats = {...}` in `giveBotBase` and a defensive `if (p.stats)` guard in
   `escapeSurvivor`. Verified via e2e (escape no longer crashes, status=escaped).
+- BUGFIX (client render — "never see player body"): `ifMenu()`, `updatePrompt()`, the
+  heartbeat interval, and `ensurePlayer`'s attach check all compared `matchState` to
+  `'match'`, but the server sets match state to `'running'` (never `'match'`). So
+  `ifMenu` always returned early → NO player body meshes were ever built/rendered.
+  Fixed all in-match guards to use `matchState === 'hub'` / `!== 'hub'` (canonical
+  states: `'hub' | 'running' | 'done'`). Verified with new `test/render-test.js`
+  (headless: matchStart + real-shaped state frames → playerMeshes.size===2; was 0).
+- BUGFIX (solid perimeter walls — "walls break open"): arena `±44` boundary was
+  visual-only (no server collision), so players walked straight through the map
+  edges. `wallBlocked` now enforces a solid perimeter that only lets you out through
+  an **OPEN** gate gap; interior vault walls unchanged. Verified via e2e (closed gate
+  blocks, open gate passes) + full escape path still works.
 
 ### IN PROGRESS / DONE SIGNALS
 - Add matchmaking priority so a 2nd+ human can join a live bot match? (Currently

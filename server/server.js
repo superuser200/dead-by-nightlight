@@ -363,6 +363,7 @@ function startMatch(group) {
     p.x = s.x; p.z = s.z; p.yaw = Math.atan2(-s.x, s.z); // face center
     p.y = 0; p.vy = 0; p.jumpT = 0; p.keys.clear(); p.inputBuffer.length = 0;
     p.walls = match.walls;
+    p.gates = match.gates;
     p.hp = 2;                // survivors only
     p.status = 'alive';
     p.carrier = null;
@@ -1009,16 +1010,37 @@ function pointInRect(p, r) {
 }
 
 function wallBlocked(p, nx, nz) {
+  // find which perimeter gate gap (if any) this position is crossing
+  const gateAt = (dir, along) => {
+    const gates = p.gates || [];
+    // north/south gates sit on the z-walls, so their gaps span x (use g.x);
+    // east/west gates sit on the x-walls, so their gaps span z (use g.z).
+    const gapOnX = (dir === 'north' || dir === 'south');
+    for (const g of gates) {
+      if (!g.open || g.dir !== dir) continue;
+      if (Math.abs(along - (gapOnX ? g.x : g.z)) <= 4) return true;
+    }
+    return false;
+  };
+  // solid arena perimeter — only an OPEN gate lets you through
+  const lim = 44.0;
+  if (nx > lim) { if (!gateAt('east', nz)) return true; }
+  else if (nx < -lim) { if (!gateAt('west', nz)) return true; }
+  if (nz > lim) { if (!gateAt('north', nx)) return true; }
+  else if (nz < -lim) { if (!gateAt('south', nx)) return true; }
+
+  // interior vault walls (survivors jump over, killers can't follow)
   const walls = p.walls;
-  if (!walls || !walls.length) return false;
-  for (const w of walls) {
-    const pad = 0.35;
-    const inX = nx >= w.x - w.w / 2 - pad && nx <= w.x + w.w / 2 + pad;
-    const inZ = nz >= w.z - w.d / 2 - pad && nz <= w.z + w.d / 2 + pad;
-    if (inX && inZ) {
-      // a survivor airborne above the wall vaults over it; everyone else is blocked
-      if (p.role === 'survivor' && p.y >= w.h - 0.15) return false;
-      return true;
+  if (walls && walls.length) {
+    for (const w of walls) {
+      const pad = 0.35;
+      const inX = nx >= w.x - w.w / 2 - pad && nx <= w.x + w.w / 2 + pad;
+      const inZ = nz >= w.z - w.d / 2 - pad && nz <= w.z + w.d / 2 + pad;
+      if (inX && inZ) {
+        // a survivor airborne above the wall vaults over it; everyone else is blocked
+        if (p.role === 'survivor' && p.y >= w.h - 0.15) return false;
+        return true;
+      }
     }
   }
   return false;

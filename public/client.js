@@ -34,7 +34,7 @@ const KILLERS = {
   umbra:   { name: 'The Umbra',   body: 0x241a30, skin: 0x2a2536, accent: 0xbf5dff, scale: 1.35, weapon: 'blade' },
 };
 let matchMap = null;         // { gens, gates, hooks }
-let matchState = 'hub';      // 'hub' | 'match' | 'done'
+let matchState = 'hub';      // 'hub' | 'running' | 'done'
 let matchKillerId = null;
 let hubPlayers = [];
 let matchPlayers = [];
@@ -477,7 +477,7 @@ function ensurePlayer(p) {
 
   entry = { group, name, isKiller, armL, armR, legL, legR, moving: null };
   playerMeshes.set(p.id, entry);
-  if (matchState === 'match' && matchGroup) matchGroup.add(group);
+  if (matchState !== 'hub' && matchGroup) matchGroup.add(group);
   else scene.add(group);
   return entry;
 }
@@ -544,7 +544,7 @@ function animate() {
   // camera follow: self, or ghost-spectate a survivor's match when dead/escaped
   const meSelf = targetPos.get(selfId) || my;
   let me = meSelf;
-  if (matchState === 'match' && matchPlayers.length) {
+  if (matchState !== 'hub' && matchPlayers.length) {
     const M = matchPlayers.find(p => p.id === selfId);
     if (M && M.role === 'survivor' && (M.status === 'dead' || M.status === 'escaped')) {
       const k = matchPlayers.find(p => p.role === 'killer');
@@ -708,7 +708,7 @@ function hurtFlash() {
 
 let lastHeart = 0;
 setInterval(() => {
-  if (matchState !== 'match' || role !== 'survivor') return;
+  if (matchState === 'hub' || role !== 'survivor') return;
   const me = targetPos.get(selfId) || my;
   let kd = 1e9;
   for (const p of matchPlayers) if (p.role === 'killer' && p.status !== 'dead' && p.status !== 'escaped') kd = Math.min(kd, dist2(me, p));
@@ -863,7 +863,7 @@ $('chatinput').addEventListener('keydown', (e) => {
 /* ---------------- interact prompt ---------------- */
 function updatePrompt() {
   const pr = $('prompt');
-  if (matchState !== 'match' || role !== 'survivor' || !matchMap) { pr.style.display = 'none'; return; }
+  if (matchState === 'hub' || role !== 'survivor' || !matchMap) { pr.style.display = 'none'; return; }
   if (my.status === 'dead' || my.status === 'escaped') { pr.style.display = 'none'; return; }
   let text = '';
   if (my.status === 'downed') text = 'Downed! A teammate can revive you…';
@@ -902,7 +902,7 @@ function pointInRect(p, r) { return p.x >= r.x && p.x <= r.x + r.w && p.z >= r.z
 
 /* ---------------- match/player state ---------------- */
 function ifMenu() {
-  if (matchState !== 'match') return;
+  if (matchState === 'hub') return;
   if (matchMap && matchMap.killerId) matchKillerId = matchMap.killerId;
   // refresh my info (position comes from server so interactions stay honest)
   const m = matchPlayers.find(p => p.id === selfId);
