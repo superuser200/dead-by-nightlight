@@ -48,6 +48,14 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   state frame broke the whole WS handler → NO players ever rendered + per-frame error
   stack felt like lag. Restored `const name = makeNameSprite(p.name); group.add(name);`.
   (Smoke suite couldn't catch this — it's client-JS only, no browser.)
+- CRITICAL FIX #2 (root cause of "can't move / can't be seen after pressing Q"):
+  `pickedOutfit` was USED (outfit picker IIFE runs at load + connect()) but NEVER
+  declared. In strict mode the IIFE threw `ReferenceError: pickedOutfit is not
+  defined` AT SCRIPT LOAD → the ENTIRE client.js aborted → no input listeners, no
+  renderer, no rendering at all. Added `let pickedOutfit = 0;`. Verified via headless
+  vm harness that client.js now LOADS and `ensurePlayer` works for survivor+killer.
+  LESSON: keep a headless client load harness (client_harness.js pattern) since the
+  smoke suite (server-only) can never catch client load/render regressions.
 - ITEM SYSTEM (server+client): Medkit/Toolbox/Flashlight/Key pickups spawn at the
   edges (4+nplayers, ≤8), Hatch + Key escape, medkit heals, toolbox 1.9x repair,
   flashlight stuns killer 2.5s, sfx + prompts + held-item HUD. matchView verified live

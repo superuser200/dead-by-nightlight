@@ -43,6 +43,7 @@ let lastPing = { rtt: null };
 let camFollowId = null;
 let pickItem = null;
 let myItem = null;
+let pickedOutfit = 0;
 
 function connect(token) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
