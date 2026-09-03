@@ -64,6 +64,15 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   edges (4+nplayers, ≤8), Hatch + Key escape, medkit heals, toolbox 1.9x repair,
   flashlight stuns killer 2.5s, sfx + prompts + held-item HUD. matchView verified live
   (types present); full pickup->use flow pending live sanity check.
+- EXIT SYSTEM REWORK (power switch + gates + vault walls): exit no longer auto-powers
+  on 5 gens. Now 6 generators must be repaired → survivors find & hold E to flip a
+  POWER SWITCH (~5s) → gates become powered → hold E at a gate (~10s, `dt*0.1`) to open
+  & escape. Added jumpable LOW VAULT WALLS to all 4 maps (survivors vault over with
+  space when airborne ≥ wall height; killers CANNOT jump so they can't follow); real
+  wall collision in `moveEntity`/`wallBlocked`. Survivor bots: repair → flip switch →
+  open gate. `matchView` now carries walls/power/gensReady for the client to render the
+  switch + walls + prompts/HUD. Verified: smoke 13/13 + client-load 7/7 + unit check of
+  wallBlocked (grounded survivor blocked, airborne survivor passes, killer always blocked).
 
 ### IN PROGRESS / DONE SIGNALS
 - Add matchmaking priority so a 2nd+ human can join a live bot match? (Currently
@@ -76,6 +85,8 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
 1. [DONE] Survivor gameplay depth — item system (Medkit/Flashlight/Key/Toolbox +
    Hatch escape) implemented & pushed; do a live sanity check of pickup/use + fix
    anything the live game surfaces.
+   [DONE] Exit system rework — power switch (6 gens) → powered gates → 10s gate open +
+   vault walls killers can't follow.
 2. Anti-boredom pacing — killer "bloodlust" ramps chase speed the longer a single
    chase goes; survivors get a short "sprint burst" with a cooldown so chases feel
    like DBD, not a stat check.

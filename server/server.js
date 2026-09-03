@@ -339,9 +339,12 @@ function startMatch(group) {
     gens: objs.gens,
     gates: objs.gates,
     hooks: objs.hooks,
+    walls: objs.walls,
+    power: objs.power,
     survivorsEscaped: [],
     sacrifices: [],
     gensDone: 0,
+    gensReady: false,
     gatesPowered: false,
     killerKills: 0,
     items: spawnItems(objs, group.length),
@@ -359,6 +362,7 @@ function startMatch(group) {
     const s = spawns[i];
     p.x = s.x; p.z = s.z; p.yaw = Math.atan2(-s.x, s.z); // face center
     p.y = 0; p.vy = 0; p.jumpT = 0; p.keys.clear(); p.inputBuffer.length = 0;
+    p.walls = match.walls;
     p.hp = 2;                // survivors only
     p.status = 'alive';
     p.carrier = null;
@@ -389,6 +393,11 @@ const MAPS = {
       { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
       { id: 'B', x: 43.8, z: 0, dir: 'east', zone: { rect: { x: 43.5, z: -4, w: 2.5, d: 8 } } },
     ],
+    pow: [-16, -6],
+    walls: [
+      { x: -20, z: -8, w: 7, d: 0.8, h: 1.7 }, { x: -6, z: 4, w: 7, d: 0.8, h: 1.7 },
+      { x: 12, z: -16, w: 0.8, d: 7, h: 1.7 }, { x: 22, z: 14, w: 0.8, d: 7, h: 1.7 },
+    ],
     hooks: [
       [-24, -20], [22, -26], [-14, 24], [26, 18], [-34, 30], [34, -30], [0, 0], [-6, -34], [8, 36], [-40, -4], [40, 6], [-18, -6], [16, 6], [-2, 2],
     ],
@@ -399,6 +408,11 @@ const MAPS = {
     gates: [
       { id: 'A', x: -43.8, z: 0, dir: 'west', zone: { rect: { x: -45, z: -4, w: 2.5, d: 8 } } },
       { id: 'B', x: 0, z: -43.8, dir: 'south', zone: { rect: { x: -4, z: -45, w: 8, d: 2.5 } } },
+    ],
+    pow: [22, 6],
+    walls: [
+      { x: 16, z: -14, w: 7, d: 0.8, h: 1.7 }, { x: -4, z: 2, w: 7, d: 0.8, h: 1.7 },
+      { x: -20, z: 16, w: 0.8, d: 7, h: 1.7 }, { x: 10, z: -4, w: 0.8, d: 7, h: 1.7 },
     ],
     hooks: [
       [-18, 30], [26, -22], [-34, -12], [8, 34], [30, 10], [-8, -30], [34, -36], [-30, 8], [2, -6], [18, 18], [-4, -14], [40, -24], [-40, 24], [14, -34],
@@ -411,6 +425,11 @@ const MAPS = {
       { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
       { id: 'B', x: -43.8, z: 0, dir: 'west', zone: { rect: { x: -45, z: -4, w: 2.5, d: 8 } } },
     ],
+    pow: [12, 14],
+    walls: [
+      { x: -18, z: 6, w: 7, d: 0.8, h: 1.7 }, { x: 2, z: -18, w: 7, d: 0.8, h: 1.7 },
+      { x: -10, z: -28, w: 0.8, d: 7, h: 1.7 }, { x: 24, z: 2, w: 0.8, d: 7, h: 1.7 },
+    ],
     hooks: [
       [-38, -20], [20, 30], [-14, -30], [34, 8], [-30, -6], [2, 32], [38, -28], [-4, 0], [6, -6], [-26, 26], [24, -12], [-40, 34], [40, 22], [0, -36],
     ],
@@ -421,6 +440,11 @@ const MAPS = {
     gates: [
       { id: 'A', x: 0, z: 43.8, dir: 'north', zone: { rect: { x: -4, z: 43.5, w: 8, d: 2.5 } } },
       { id: 'B', x: 43.8, z: 0, dir: 'east', zone: { rect: { x: 43.5, z: -4, w: 2.5, d: 8 } } },
+    ],
+    pow: [-26, 30],
+    walls: [
+      { x: -16, z: 8, w: 0.8, d: 7, h: 1.7 }, { x: 20, z: -24, w: 0.8, d: 7, h: 1.7 },
+      { x: 6, z: 26, w: 7, d: 0.8, h: 1.7 }, { x: -30, z: -16, w: 7, d: 0.8, h: 1.7 },
     ],
     hooks: [
       [-20, 18], [28, -10], [-34, -24], [4, 38], [32, 26], [-16, -18], [40, -34], [-40, 14], [0, -4], [22, 10], [-6, 24], [36, -2], [-30, 38], [14, -38],
@@ -436,7 +460,9 @@ function mapObjs(mapId) {
   const gens = chosen.map(([x, z], i) => ({ id: i, x: clamp(x + rint(-3, 3), -40, 40), z: clamp(z + rint(-3, 3), -40, 40), prog: 0, done: false }));
   const gates = mp.gates.map((g) => ({ id: g.id, x: g.x, z: g.z, dir: g.dir, zone: g.zone, open: false, prog: 0 }));
   const hooks = mp.hooks.map(([x, z]) => ({ x, z }));
-  return { gens, gates, hooks };
+  const walls = (mp.walls || []).map((w) => ({ ...w }));
+  const power = { x: mp.pow[0], z: mp.pow[1], on: false, prog: 0 };
+  return { gens, gates, hooks, walls, power };
 }
 // scatter a handful of one-use item pickups at random open positions
 function spawnItems(objs, nplayers) {
@@ -473,7 +499,10 @@ function matchView(match) {
     gens: match.gens,
     gates: match.gates,
     hooks: match.hooks,
+    walls: match.walls,
+    power: match.power,
     gensDone: match.gensDone,
+    gensReady: match.gensReady,
     gatesPowered: match.gatesPowered,
     clock: Math.max(0, match.clock || 0),
     killerId: match.killerId || 'ravager',
@@ -596,7 +625,7 @@ function planBot(p, match) {
   const a = p.ai;
   // adaptive pressure: killer learns which generator survivors keep repairing
   if (p.role === 'killer') {
-    if (match.gensDone < 5) {
+    if (match.gensDone < 6) {
       const bestGen = aiBestGen(match);
       let targetObj = null;
       const nearestSurv = aiNearestSurvivor(p, match);
@@ -613,9 +642,11 @@ function planBot(p, match) {
       if (ns) a.focus = { kind: 's', x: ns.x, z: ns.z };
     }
   } else {
-    // survivor bots: repair gens, open gates when powered
+    // survivor bots: repair gens -> flip power switch -> open gates
     if (match.gatesPowered) {
       a.focus = { kind: 'gate', x: match.gates[0].x, z: match.gates[0].z };
+    } else if (match.gensReady && match.power) {
+      a.focus = { kind: 'power', x: match.power.x, z: match.power.z };
     } else {
       const g = aiNearestGen(p, match);
       if (g) a.focus = { kind: 'gen', x: g.x, z: g.z };
@@ -803,11 +834,25 @@ function simulateMatch(match) {
           g.prog = clamp(g.prog, 0, 1);
           if (g.prog >= 1 && !g.done) {
             g.done = true; match.gensDone += 1;
-            if (match.gensDone >= 5) {
-              match.gatesPowered = true;
-              broadcastToast('The exit gates are powered!');
+            if (match.gensDone >= 6) {
+              match.gensReady = true;
+              broadcastToast('6 generators repaired — find the POWER SWITCH and flip it!');
             }
           }
+        }
+      }
+    }
+
+    // flip the power switch (E near it) -> powers the exit gates
+    if (e && match.gensReady && !match.gatesPowered) {
+      const pw = match.power;
+      if (dist2(p, pw) <= 2.3 * 2.3) {
+        pw.prog += dt * 0.25; // ~5s to flip
+        pw.prog = clamp(pw.prog, 0, 1);
+        if (pw.prog >= 1) {
+          pw.on = true;
+          match.gatesPowered = true;
+          broadcastToast('The exit gates are now POWERED — hold E at a gate to open it!');
         }
       }
     }
@@ -828,8 +873,8 @@ function simulateMatch(match) {
     }
     if (match.gatesPowered && !p.escaped) {
       const gA = match.gates[0], gB = match.gates[1];
-      if (e && dist2(p, gA) <= 2.3 * 2.3 && !gA.open) { gA.prog += dt * 0.5; if (gA.prog >= 1) gA.open = true; }
-      if (e && dist2(p, gB) <= 2.3 * 2.3 && !gB.open) { gB.prog += dt * 0.5; if (gB.prog >= 1) gB.open = true; }
+      if (e && dist2(p, gA) <= 2.3 * 2.3 && !gA.open) { gA.prog += dt * 0.1; if (gA.prog >= 1 && !gA.open) { gA.open = true; broadcastToast('Gate A is open — ESCAPE!'); } }
+      if (e && dist2(p, gB) <= 2.3 * 2.3 && !gB.open) { gB.prog += dt * 0.1; if (gB.prog >= 1 && !gB.open) { gB.open = true; broadcastToast('Gate B is open — ESCAPE!'); } }
     }
   }
 }
@@ -923,6 +968,11 @@ function driveBot(p, match) {
       if (!gate || gate.open) { a.focus = null; }
       else if (gd <= 2.5 * 2.5) { p.keys = new Set(['e']); a.waitT = (a.waitT || 0) + 1; if (a.waitT > (190 - (p.skill || 0.5) * 60)) { a.focus = null; reprioritizeGate(p, match, a); } }
       else walkTo(p, gate.x, gate.z);
+    } else if (goal.kind === 'power') {
+      const pw = match.power;
+      if (match.gatesPowered) { a.focus = { kind: 'gate', x: match.gates[0].x, z: match.gates[0].z }; }
+      else if (gd <= 2.5 * 2.5) { p.keys = new Set(['e']); a.waitT = (a.waitT || 0) + 1; if (a.waitT > 180 && pw && !pw.on) { a.focus = null; } }
+      else if (pw) walkTo(p, pw.x, pw.z);
     } else {
       walkTo(p, goal.x, goal.z);
     }
@@ -956,6 +1006,22 @@ function pointInRect(p, r) {
   return p.x >= r.x && p.x <= r.x + r.w && p.z >= r.z && p.z <= r.z + r.d;
 }
 
+function wallBlocked(p, nx, nz) {
+  const walls = p.walls;
+  if (!walls || !walls.length) return false;
+  for (const w of walls) {
+    const pad = 0.35;
+    const inX = nx >= w.x - w.w / 2 - pad && nx <= w.x + w.w / 2 + pad;
+    const inZ = nz >= w.z - w.d / 2 - pad && nz <= w.z + w.d / 2 + pad;
+    if (inX && inZ) {
+      // a survivor airborne above the wall vaults over it; everyone else is blocked
+      if (p.role === 'survivor' && p.y >= w.h - 0.15) return false;
+      return true;
+    }
+  }
+  return false;
+}
+
 function moveEntity(p, speed, dt) {
   let mx = 0, mz = 0;
   if (p.keys.has('w')) { const f = FWD(p.yaw); mx += f.x; mz += f.z; }
@@ -965,16 +1031,17 @@ function moveEntity(p, speed, dt) {
   const len = Math.hypot(mx, mz);
   if (len > 0) { mx /= len; mz /= len; }
 
-  // jump (server-controlled so fly hacks are impossible)
+  // jump (killers can't jump, so they can't vault over survivor walls)
   p.jumpT = Math.max(0, p.jumpT - dt);
-  if (p.keys.has('space') && p.y <= 0.001) { p.vy = 8.5; p.jumpT = 0.05; }
+  if (p.role !== 'killer' && p.keys.has('space') && p.y <= 0.001) { p.vy = 8.5; p.jumpT = 0.05; }
   p.vy -= 20 * dt;
   p.y += p.vy * dt;
   if (p.y <= 0) { p.y = 0; p.vy = 0; }
 
   const bounds = 45;
-  p.x = clamp(p.x + mx * speed * dt, -bounds, bounds);
-  p.z = clamp(p.z + mz * speed * dt, -bounds, bounds);
+  const nx = clamp(p.x + mx * speed * dt, -bounds, bounds);
+  const nz = clamp(p.z + mz * speed * dt, -bounds, bounds);
+  if (!wallBlocked(p, nx, nz)) { p.x = nx; p.z = nz; }
 }
 
 function doAttack(match, killer, kh) {

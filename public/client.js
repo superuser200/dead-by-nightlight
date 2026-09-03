@@ -118,6 +118,7 @@ let hubGroup = null, matchGroup = null;
 let playerMeshes = new Map();   // id -> {group, nameSprite, mats...}
 let genMeshes = new Map(), hookMeshes = new Map(), gateMeshes = new Map();
 let itemMeshes = new Map(), hatchMesh = null;
+let wallMeshes = [], powerMesh = null;
 let targetPos = new Map();      // id -> {x,z,y,yaw,status,carrier,hp}
 
 const isDowned = (s) => s === 'downed';
@@ -227,6 +228,21 @@ function enterMatch() {
     matchGroup.add(grp);
     gateMeshes.set(g.id, grp);
   }
+  // jumpable vault walls (killers can't pass, survivors vault over)
+  wallMeshes = [];
+  for (const w of (matchMap.walls || [])) {
+    const grp = wallGroup(w);
+    grp.position.set(w.x, 0, w.z);
+    matchGroup.add(grp);
+    wallMeshes.push(grp);
+  }
+  // power switch (flip to power the exit gates)
+  if (matchMap.power) {
+    const grp = powerGroup();
+    grp.position.set(matchMap.power.x, 0, matchMap.power.z);
+    matchGroup.add(grp);
+    powerMesh = grp;
+  }
   // item pickups
   for (const it of (matchMap.items || [])) {
     const grp = itemGroup(it.type);
@@ -302,12 +318,34 @@ function gateGroup(dir) {
   }
   return g;
 }
+function wallGroup(w) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), new THREE.MeshLambertMaterial({ color: 0x4a3a33 }));
+  body.position.y = w.h / 2;
+  const top = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.06, 0.14, w.d + 0.06), new THREE.MeshLambertMaterial({ color: 0x6d5748 }));
+  top.position.y = w.h + 0.05;
+  g.add(body, top);
+  return g;
+}
+function powerGroup() {
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.5, 0.7), new THREE.MeshLambertMaterial({ color: 0x2a2436 }));
+  box.position.y = 0.75;
+  const face = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 0.1), new THREE.MeshBasicMaterial({ color: 0xffd24e }));
+  face.position.set(0, 0.85, 0.36);
+  const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0xc9ccd6 }));
+  lever.position.set(0, 1.0, 0.5); lever.rotation.x = -0.3;
+  g.add(box, face, lever);
+  g.userData.face = face;
+  return g;
+}
 
 function leaveMatch() {
   if (matchGroup) { scene.remove(matchGroup); matchGroup = null; }
   playerMeshes.forEach((o) => scene.remove(o.group));
   playerMeshes.clear(); targetPos.clear();
   itemMeshes.clear(); genMeshes.clear(); hookMeshes.clear(); gateMeshes.clear(); hatchMesh = null;
+  wallMeshes = []; powerMesh = null;
   $('mm').style.display = 'none';
   $('end').style.display = 'none';
   $('prompt').style.display = 'none';
@@ -551,6 +589,11 @@ function animate() {
         if (!it.taken) { gm.position.y = (it.id.charCodeAt(1) % 5) * 0.001; const by = 0.55 + Math.sin(t + it.x) * 0.12; gm.children[0].position.y = by; gm.children[1].position.y = by; }
       }
     }
+    // power switch: faces glow green once powered
+    if (powerMesh && matchMap.power) {
+      powerMesh.userData.face.material.color.setHex(matchMap.power.on ? 0x3dff7a : 0xffd24e);
+      powerMesh.visible = true;
+    }
   }
 
   renderer.render(scene, camera);
@@ -733,7 +776,7 @@ function setChip(id, txt) { $(id).textContent = txt; }
 
 function updateHud() {
   const map = matchMap && matchMap.mapName ? ' · ' + matchMap.mapName : '';
-  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/5` : `Hub · ${hubPlayers.length} souls · queue ${queueSize} · ${matchesActive} game${matchesActive === 1 ? '' : 's'}`);
+  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/6` : `Hub · ${hubPlayers.length} souls · queue ${queueSize} · ${matchesActive} game${matchesActive === 1 ? '' : 's'}`);
   setChip('role', !role ? 'RECRUIT' : role === 'killer' ? 'KILLER' : 'SURVIVOR');
   const clkEl = $('clock');
   if (matchState !== 'hub' && matchMap && matchMap.clock != null) {
@@ -762,7 +805,10 @@ function updateHud() {
     } else {
       const powered = matchMap && matchMap.gatesPowered;
       const kname = (KILLERS[matchKillerId] || {}).name;
-      setChip('obj', (powered ? 'OUTPUT GATES POWERED — open a gate & escape!' : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/5`) + (kname ? `  |  ${kname} hunts` : ''));
+      const obj = powered ? 'OUTPUT GATES POWERED — open a gate & escape!'
+        : (matchMap && matchMap.gensReady) ? 'All gens done — find the POWER SWITCH & flip it!'
+        : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/6`;
+      setChip('obj', obj + (kname ? `  |  ${kname} hunts` : ''));
       setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}` + (myItem ? `  |  [E] ${myItem === 'medkit' ? 'Medkit' : myItem === 'toolbox' ? 'Toolbox' : myItem === 'flash' ? 'Flashlight' : 'Hatch Key'}` : ''));
       bars('hp', (my.hp || 0) / 2);
     }
@@ -827,15 +873,21 @@ function updatePrompt() {
       if (g.open && pointInRect(my, g.zone.rect)) text = 'ESCAPE!';
     }
     if (!text) for (const g of matchMap.gens) if (!g.done && dist2(my, g) <= 2.1 * 2.1 * 1.4) text = 'Gate open — RUN!';
-    if (!text) for (const g of matchMap.gates) if (!g.open && dist2(my, g) <= 2.3 * 2.3 * 1.9) text = `HOLD E to open gate ${g.id}…`;
+    if (!text) for (const g of matchMap.gates) if (!g.open && dist2(my, g) <= 2.3 * 2.3 * 1.9) text = `HOLD E to open gate ${g.id}… (takes ~10s)`;
   } else {
-    // nearest item pickup
-    if (!text) for (const it of (matchMap.items || [])) if (!it.taken && dist2(my, it) <= 2.0 * 2.0 * 1.5) text = `E to grab ${it.name}`;
-    if (!text) for (const pk of (matchMap.keys || [])) if (myItem === 'key' && !pk.open && dist2(my, pk) <= 2.4 * 2.4 * 1.4) text = 'E to unlock the hatch & escape!';
-    for (const g of matchMap.gens) if (!g.done && dist2(my, g) <= 2.1 * 2.1 * 1.4) text = `HOLD E to repair generator… ${(g.prog * 100).toFixed(0)}%`;
-    if (!text) for (const p of matchPlayers) if (p.id !== selfId && p.status === 'downed' && dist2(my, p) <= 2.2 * 2.2 * 1.4) {
-      const prog = p.progress || 0;
-      text = `HOLD E to revive ${p.name}… ${(prog / 5 * 100).toFixed(0)}%`;
+    // power switch: flip it to power the gates once all generators are done
+    if (matchMap.power && matchMap.gensReady && !matchMap.power.on && dist2(my, matchMap.power) <= 2.3 * 2.3 * 1.5) {
+      text = `HOLD E to flip the POWER SWITCH… ${Math.round((matchMap.power.prog || 0) * 100)}%`;
+    }
+    if (!text) {
+      // nearest item pickup
+      if (!text) for (const it of (matchMap.items || [])) if (!it.taken && dist2(my, it) <= 2.0 * 2.0 * 1.5) text = `E to grab ${it.name}`;
+      if (!text) for (const pk of (matchMap.keys || [])) if (myItem === 'key' && !pk.open && dist2(my, pk) <= 2.4 * 2.4 * 1.4) text = 'E to unlock the hatch & escape!';
+      for (const g of matchMap.gens) if (!g.done && dist2(my, g) <= 2.1 * 2.1 * 1.4) text = `HOLD E to repair generator… ${(g.prog * 100).toFixed(0)}%`;
+      if (!text) for (const p of matchPlayers) if (p.id !== selfId && p.status === 'downed' && dist2(my, p) <= 2.2 * 2.2 * 1.4) {
+        const prog = p.progress || 0;
+        text = `HOLD E to revive ${p.name}… ${(prog / 5 * 100).toFixed(0)}%`;
+      }
     }
   }
   // held-item usage hint
