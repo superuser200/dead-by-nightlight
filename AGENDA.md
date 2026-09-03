@@ -73,6 +73,17 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   open gate. `matchView` now carries walls/power/gensReady for the client to render the
   switch + walls + prompts/HUD. Verified: smoke 13/13 + client-load 7/7 + unit check of
   wallBlocked (grounded survivor blocked, airborne survivor passes, killer always blocked).
+- BUGFIX (live-safety, verified via in-proc e2e): `mapObjs` only spawned **5 gens**
+  because the pick loop re-evaluated `Math.min(6, cands.length)` while `cands` shrank
+  (once 5 candidates remained the limit collapsed to 5) → the 6-gen power switch was
+  IMPOSSIBLE. Fixed by computing `want = Math.min(6, cands.length)` once; all maps now
+  spawn 6 gens. e2e confirms the full win path: 6 gens → switch flip → 10s gate open →
+  escape.
+- BUGFIX (server CRASH): `escapeSurvivor` dereferenced `p.stats.esc` but **bots have no
+  `stats`** → `TypeError: Cannot read properties of undefined (reading 'esc')` crashed
+  a live match whenever a bot escaped (bots fill matches, so this hit often). Added
+  `b.stats = {...}` in `giveBotBase` and a defensive `if (p.stats)` guard in
+  `escapeSurvivor`. Verified via e2e (escape no longer crashes, status=escaped).
 
 ### IN PROGRESS / DONE SIGNALS
 - Add matchmaking priority so a 2nd+ human can join a live bot match? (Currently

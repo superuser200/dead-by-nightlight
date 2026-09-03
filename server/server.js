@@ -456,7 +456,8 @@ function mapObjs(mapId) {
   const mp = MAPS[mapId];
   const cands = mp.gens.slice();
   const chosen = [];
-  while (chosen.length < Math.min(6, cands.length)) chosen.push(cands.splice(Math.floor(rand() * cands.length), 1)[0]);
+  const want = Math.min(6, cands.length);
+  while (chosen.length < want) chosen.push(cands.splice(Math.floor(rand() * cands.length), 1)[0]);
   const gens = chosen.map(([x, z], i) => ({ id: i, x: clamp(x + rint(-3, 3), -40, 40), z: clamp(z + rint(-3, 3), -40, 40), prog: 0, done: false }));
   const gates = mp.gates.map((g) => ({ id: g.id, x: g.x, z: g.z, dir: g.dir, zone: g.zone, open: false, prog: 0 }));
   const hooks = mp.hooks.map(([x, z]) => ({ x, z }));
@@ -529,6 +530,7 @@ function giveBotBase(b) {
   b.name = b.name || ('FogSpirit' + rint(1000, 9999));
   b.nameLow = b.name.toLowerCase();
   b.bot = true;
+  b.stats = { games: 0, esc: 0, dead: 0, kills: 0, wins: 0 };
   b.yaw = rand() * Math.PI * 2;
   b.pitch = -0.2;
   b.hp = 2; b.status = 'alive'; b.carrier = null;
@@ -1095,7 +1097,7 @@ function escapeSurvivor(match, p) {
   p.escaped = true;
   p.status = 'escaped';
   match.survivorsEscaped.push(p.name);
-  p.stats.esc = (p.stats.esc || 0) + 1;
+  if (p.stats) p.stats.esc = (p.stats.esc || 0) + 1;
   send(p, { t: 'toast', msg: 'You escaped!' });
   broadcast({ t: 'chat', from: 'FOG', msg: `${p.name} escaped through the gate.`, admin: false });
   log('ESCAPE', match.id, p.name);
