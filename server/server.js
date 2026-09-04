@@ -13,7 +13,7 @@ const { randomBytes, createHash } = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT || 8080);
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || randomBytes(8).toString('hex');
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'fogmaster-dev-key';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // AI: fill empty spots so the night is never empty (only on the live server,
