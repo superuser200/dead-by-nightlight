@@ -504,7 +504,6 @@ function ensurePlayer(p) {
 
 function setPose(entry, moving, dead, downed) {
   if (!entry) return;
-  const a = entry.isKiller ? 0.4 : 0.55;
   if (moving) entry.moving = moving;
   if (dead || downed) {
     entry.armL.rotation.z = Math.PI / 2; entry.armR.rotation.z = -Math.PI / 2;
@@ -514,9 +513,13 @@ function setPose(entry, moving, dead, downed) {
   }
   entry.group.rotation.z = 0;
   if (entry.moving) {
-    const s = Math.sin(performance.now() / 90) * a;
-    entry.armL.rotation.x = s; entry.armR.rotation.x = -s;
-    entry.legL.rotation.x = -s; entry.legR.rotation.x = s;
+    const s = Math.sin(performance.now() / 90);
+  // Keep arms low when walking/running so they hang near the hips instead of
+  // flailing up at the shoulders; legs keep a natural, bigger stride.
+  const armSwing = s * (entry.isKiller ? 0.16 : 0.12);
+  const legSwing = s * 0.55;
+  entry.armL.rotation.x = armSwing; entry.armR.rotation.x = -armSwing;
+  entry.legL.rotation.x = -legSwing; entry.legR.rotation.x = legSwing;
   } else {
     entry.armL.rotation.x = 0; entry.armR.rotation.x = 0;
     entry.legL.rotation.x = 0; entry.legR.rotation.x = 0;
