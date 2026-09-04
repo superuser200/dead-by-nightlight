@@ -45,10 +45,16 @@ let pickItem = null;
 let myItem = null;
 let pickedOutfit = 0;
 
-function connect(token) {
+function connect(name, pass) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('name').value.trim(), outfit: pickedOutfit, admin: token || '' }));
+  ws.onopen = () => ws.send(JSON.stringify({
+    t: authMode === 'register' ? 'register' : 'login',
+    name: name || $('name').value.trim(),
+    pass: pass || '',
+    outfit: pickedOutfit,
+    admin: $('adminkey').value.trim(),
+  }));
   ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch { } };
   ws.onclose = () => {
     toast('Connection lost. Refresh to rejoin.', 'bad');
@@ -640,7 +646,7 @@ document.addEventListener('mouseup', (e) => { if (e.button === 0) keys.delete('m
 function isTyping() {
   const a = document.activeElement;
   if (selfId && matchState !== 'hub') return false; // in a match, movement keys always work
-  return a === $('chatinput') || a === $('name') || a === $('adminkey');
+  return a === $('chatinput') || a === $('name') || a === $('pass') || a === $('adminkey');
 }
 
 document.addEventListener('keydown', (e) => {
@@ -1010,13 +1016,24 @@ function drawMinimap() {
 }
 
 /* ---------------- log in ---------------- */
+let authMode = 'login'; // 'login' | 'register'
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  $('authmodetoggle').textContent = authMode === 'register' ? 'Already have an account? LOG IN' : 'New here? REGISTER';
+  $('pass').placeholder = authMode === 'register' ? 'Create a password (4+ chars)' : 'Password';
+}
+$('authmodetoggle').addEventListener('click', toggleAuthMode);
 $('join').addEventListener('click', () => {
   const n = $('name').value.trim();
+  const pw = $('pass').value;
+  const btn = $('join');
   if (n.length < 2) { $('authmsg').textContent = 'Pick a name (2-16 chars).'; return; }
-  $('join').disabled = true;
-  connect($('adminkey').value.trim());
+  if (pw.length < 4) { $('authmsg').textContent = authMode === 'register' ? 'Create a password (4+ chars).' : 'Enter your password.'; return; }
+  btn.disabled = true;
+  $('authmsg').textContent = 'Sending...';
+  connect(n, pw);
 });
-['name', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
+['name', 'pass', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
 
 // outfit picker
 (function buildOutfitPicker() {

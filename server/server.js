@@ -63,6 +63,7 @@ fs.mkdirSync(DATA, { recursive: true });
 let bans = loadJSON('bans.json', { users: {}, ips: {} });
 let stats = loadJSON('stats.json', {});   // name -> {games,esc,ghosted,kills,dead}
 let cheatLog = loadJSON('cheatlog.json', []);
+let accounts = loadJSON('accounts.json', {}); // nameLow -> { name, salt, hash }
 
 function loadJSON(file, fallback) {
   try { return JSON.parse(fs.readFileSync(path.join(DATA, file), 'utf8')); }
@@ -180,6 +181,8 @@ function onMessage(p, raw) {
   }
   switch (msg.t) {
     case 'join': return onJoin(p, msg);
+    case 'login': return onJoin(p, msg);
+    case 'register': return onRegister(p, msg);
     case 'input': return onInput(p, msg);
     case 'chat': return onChat(p, msg);
     case 'queue': return onQueue(p, true);
@@ -194,14 +197,58 @@ function onMessage(p, raw) {
 function onJoin(p, msg) {
   if (p.name) return;
   const raw = String(msg.name || '').trim();
+  const pass = String(msg.pass || '');
   if (raw.length < 2 || raw.length > 16 || !/^[\w\u00C0-\u00FF .\-]{2,16}$/.test(raw)) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Name must be 2-16 letters/numbers.' }));
+    return;
+  }
+  if (pass.length < 4) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Create a password (4+ chars) to protect this name.' }));
     return;
   }
   const nameLow = raw.toLowerCase();
   const now = Date.now();
 
-  // Ban check (user + IP)
+  // account must exist and the password must match
+  const acct = accounts[nameLow];
+  if (!acct) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'No account for "' + raw + '". Register first.' }));
+    return;
+  }
+  if (!verifyPass(pass, acct)) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Wrong password for "' + raw + '".' }));
+    return;
+  }
+
+  setupPlayer(p, raw, nameLow, msg, now);
+}
+
+function onRegister(p, msg) {
+  if (p.name) return;
+  const raw = String(msg.name || '').trim();
+  const pass = String(msg.pass || '');
+  if (raw.length < 2 || raw.length > 16 || !/^[\w\u00C0-\u00FF .\-]{2,16}$/.test(raw)) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Name must be 2-16 letters/numbers.' }));
+    return;
+  }
+  if (pass.length < 4 || pass.length > 64) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Password must be 4-64 characters.' }));
+    return;
+  }
+  const nameLow = raw.toLowerCase();
+  const now = Date.now();
+  if (accounts[nameLow]) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'That name is already taken. Log in instead.' }));
+    return;
+  }
+  accounts[nameLow] = makeAccount(raw, pass);
+  save('accounts.json', accounts, true);
+  setupPlayer(p, raw, nameLow, msg, now);
+  if (p.ws) p.ws.send(JSON.stringify({ t: 'toast', msg: `Account created for ${raw} — welcome.` }));
+}
+
+// finish player entry after the account password checks pass
+function setupPlayer(p, raw, nameLow, msg, now) {
   const ub = bans.users[nameLow]; if (ub && (ub.until === 0 || ub.until > now)) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Banned: ' + ub.reason })); return;
   }
@@ -231,6 +278,19 @@ function onJoin(p, msg) {
   if (p.admin) sendAdminSnapshot(p);
   broadcastToast(`${p.name} entered the fog.`);
   save('stats.json', stats, true);
+}
+
+// --- account credentials ---
+function makeAccount(name, pass) {
+  const salt = randomBytes(16).toString('hex');
+  return { name, salt, hash: hashPass(pass, salt) };
+}
+function hashPass(pass, salt) {
+  return createHash('sha256').update(String(salt) + ':' + String(pass)).digest('hex');
+}
+function verifyPass(pass, acct) {
+  if (!acct || !acct.salt || !acct.hash) return false;
+  return hashPass(pass, acct.salt) === acct.hash;
 }
 
 function onInput(p, msg) {
@@ -287,19 +347,22 @@ const matches = new Map(); // id -> match
 let matchIdCounter = 0;
 
 setInterval(() => {
-  spawnBotsToFill();
-  const humans = queue.filter(p => !p.bot);
-  let group = null;
-  if (humans.length >= 2) {
-    group = queue.splice(0, 11);
-  } else if (humans.length === 1) {
-    const h = humans[0];
-    queue.splice(queue.indexOf(h), 1);
-    group = [h];
-    // a human always leads — fill the rest with queued bots
-    while (group.length < 4 && queue.length) group.push(queue.shift());
+  // AUTO-START MATCHMAKING: online real players (in hub / not yet in a match)
+  // are placed automatically once 2+ are present. Matches start with REAL
+  // players only — no initial queue bots. Bots exist solely as on-the-fly
+  // replacements when a real player leaves a live match (fillReplacementBot).
+  const cands = [];
+  for (const p of players.values()) {
+    if (p.bot) continue;
+    if (p.state === 'hub' || p.state == null) {
+      if (p.matchId == null) cands.push(p);
+    }
   }
-  if (group && group.length >= 2) startMatch(group);
+  if (cands.length >= 2) {
+    const group = cands.slice(0, 11);
+    for (const p of group) p.queued = false;
+    startMatch(group);
+  }
   broadcastQueueInfo();
 }, MATCHMAKER_MS);
 

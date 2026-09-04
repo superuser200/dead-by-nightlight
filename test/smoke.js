@@ -11,11 +11,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let failures = 0;
 const ok = (cond, label) => { console.log((cond ? 'PASS' : 'FAIL') + '  ' + label); if (!cond) failures++; };
 
-function makeClient(name, adminKey) {
+function makeClient(name, adminKey, mode) {
+  const t = mode === 'login' ? 'login' : 'register';
   return new Promise((resolve, reject) => {
     const ws = new WS(URL);
     const c = { name, ws, auth: null, matchStart: null, states: 0, toasts: [], matchEnd: null, ejected: null, adminSnap: null, byType: {}, chat: null };
-    ws.on('open', () => ws.send(JSON.stringify({ t: 'join', name, admin: adminKey || '' })));
+    ws.on('open', () => ws.send(JSON.stringify({ t, name, pass: 'pw' + String(name).length + 'xyz', admin: adminKey || '' })));
     ws.on('message', (d) => {
       const m = JSON.parse(d.toString());
       c.byType[m.t] = (c.byType[m.t] || 0) + 1;
@@ -42,19 +43,27 @@ const sendi = (c, k, yaw, n) => { for (let i = 0; i < (n || 1); i++) c.ws.send(J
 
   // 2. three players join + queue
   const nameA = 'TA' + TS, nameB = 'TB' + TS, nameC = 'TC' + TS;
-  const A = await makeClient(nameA, null);
-  const B = await makeClient(nameB, null);
-  const C = await makeClient(nameC, null);
+  const [A, B, C] = await Promise.all([
+    makeClient(nameA, null),
+    makeClient(nameB, null),
+    makeClient(nameC, null),
+  ]);
   ok(A.auth && A.auth.ok && B.auth && B.auth.ok && C.auth && C.auth.ok, '3 clients authenticated');
   ok(OT.adminSnap, 'admin received online snapshot');
   await sleep(700);
   ok(A.byType.state && A.byType.state > 0, 'hub state frames streaming to hub players');
 
-  // 3. queue & match
-  for (const c of [A, B, C]) c.ws.send(JSON.stringify({ t: 'queue' }));
-  await sleep(3000);
+  // 3. auto-start matchmaking: all 3 online real players auto-placed into ONE match
+  let matched = []; let matchId = null;
+  for (let w = 0; w < 12 && matched.length < 3; w++) {
+    await sleep(400);
+    matched = [A, B, C].filter(c => c.matchStart);
+    if (matched.length === 3) matchId = matched[0].matchStart.match.id;
+  }
+  await sleep(500);
   const started = [A, B, C].filter(c => c.matchStart);
-  ok(started.length === 3, 'match started for all 3 queued');
+  ok(started.length === 3, 'auto-match placed all 3 online players');
+  ok(A.matchStart && [B, C].every(c => c.matchStart && c.matchStart.match.id === A.matchStart.match.id), 'all 3 in the same match');
   const killer = started.find(c => c.matchStart.match.role === 'killer');
   const survs = started.filter(c => c.matchStart.match.role === 'survivor');
   ok(!!killer && survs.length > 0, 'roles assigned (killer + survivors)');
@@ -75,7 +84,7 @@ const sendi = (c, k, yaw, n) => { for (let i = 0; i < (n || 1); i++) c.ws.send(J
   ok(banTarget.ejected, 'manually banned player was ejected');
   OT.ws.send(JSON.stringify({ t: 'admin', op: 'unbanUser', name: nameX }));
   await sleep(400);
-  const B2 = await makeClient(nameX, null);
+  const B2 = await makeClient(nameX, null, 'login');
   ok(B2.auth && B2.auth.ok, 'unbanned player can rejoin');
 
   // 6. auto-ban: flood inputs repeatedly from the still-connected killer
@@ -84,7 +93,7 @@ const sendi = (c, k, yaw, n) => { for (let i = 0; i < (n || 1); i++) c.ws.send(J
   const floodHits = killer.ejected || killer.toasts.some(t => /was banned/i.test(t) && /flood|packet|suspicious/i.test(t));
   ok(floodHits, 'input-flood triggered anti-cheat (warning or auto-ban)');
 
-  const K3 = await makeClient(killer.name, null);
+  const K3 = await makeClient(killer.name, null, 'login');
   if (!(K3.auth && !K3.auth.ok && K3.auth.msg && /ann/i.test(K3.auth.msg))) {
     console.log('  [debug] killer=', killer.name, ' killer.ejected=', killer.ejected ? killer.ejected.msg : null, ' killer.toasts=', JSON.stringify(killer.toasts));
     console.log('  [debug] K3.auth=', JSON.stringify(K3.auth), ' K3.byType=', JSON.stringify(K3.byType));

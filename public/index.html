@@ -40,13 +40,15 @@
   <div class="panel">
     <h1 class="title">DEAD BY <span>NIGHTLIGHT</span></h1>
     <p class="sub">1 killer. 10 survivors. One eternal night.</p>
-    <input id="name" maxlength="16" placeholder="Survivor name" autocomplete="off" />
+    <input id="name" maxlength="16" placeholder="Username" autocomplete="username" />
+    <input id="pass" type="password" maxlength="64" placeholder="Password" autocomplete="current-password" />
     <input id="adminkey" maxlength="40" placeholder="Admin key (optional)" autocomplete="off" />
     <div id="outfit-row">
       <span id="outfit-label">Outfit: <b>Ranger</b></span>
       <div id="outfit-swatches"></div>
     </div>
     <button id="join" class="btn">ENTER THE FOG</button>
+    <button id="authmodetoggle" type="button" class="ghostbtn">New here? REGISTER</button>
     <p id="authmsg" class="err"></p>
     <a href="https://discord.gg/JzVPAjJqaE" target="_blank" class="discord-link">Join our Discord</a>
   </div>

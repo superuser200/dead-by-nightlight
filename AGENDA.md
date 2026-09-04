@@ -150,3 +150,21 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   draws each mesh between prev and current using render-time alpha (`(now-lastServerT)/45`),
   giving smooth glide independent of the 20Hz tick.
 - TUNE (too-easy downing): killer-bot swing now requires much closer range (1.9 + sk*0.4 vs 2.7 + sk*0.6) and a tighter facing cone (1.3 - sk*0.5 vs 1.15 - sk*0.75); doAttack cooldown 250ms -> 900ms so a killer can't chain-down a walking survivor. Core downing mechanic preserved but far less frequent.
+- FEATURE (username + password ACCOUNTS): anonymous entry removed. Clients now
+  `register` (create account: name 2-16, password 4-64) or `login` (existing
+  account). Passwords are salted (16-byte random salt) + SHA-256 hashed, stored
+  in server/data/accounts.json (keyed by lowercased name, never plaintext).
+  Both paths route through `setupPlayer()` which keeps the ban checks and admin
+  key hook. Login form gained a password field + "REGISTER / LOG IN" toggle
+  (public/index.html). Coverage: `test/smoke.js` registers 3 fresh accounts per
+  run and uses `login` mode for reconnects/rejoins.
+- FEATURE (AUTO-START MATCHMAKING): online real players in the hub (not yet in a
+  match) are auto-placed into ONE match once 2+ are present — no manual queue
+  button needed. Group uses REAL players only (cap 11 = 1 killer + survivors); NO
+  initial queue bots. Bots exist solely as on-the-fly replacements when a real
+  player leaves a live match (fillReplacementBot) — so enter the game and 2+
+  real players will fight automatically. The old single-human-first-match
+  bot-fill path (spawnBotsToFill inside the matchmaker) was removed from the
+  auto tick to satisfy "no initial bots". Coverage: `test/smoke.js` auto-match
+  assertions (all 3 online placed into the SAME match M1 with killer+survivor
+  roles).
