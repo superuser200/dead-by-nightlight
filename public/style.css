@@ -43,6 +43,9 @@ input:focus { border-color: #58637e; }
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
 #topbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { background: rgba(8,13,24,.78); border: 1px solid #2a3856; border-radius: 8px; padding: 6px 12px; font-size: 12px; letter-spacing: .4px; }
+/* The HUD has pointer-events:none so clicks pass through to the game. Re-enable
+   them for the clickable Tip Us button so it actually receives clicks. */
+#tiplink { pointer-events: auto; cursor: pointer; }
 
 #bars { position: absolute; bottom: 14px; left: 14px; display: flex; flex-direction: column; gap: 6px; }
 .bar { width: 220px; height: 14px; border-radius: 7px; background: rgba(9,14,26,.85); border: 1px solid #2a3856; overflow: hidden; }
