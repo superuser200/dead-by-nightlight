@@ -1019,8 +1019,10 @@ function drawMinimap() {
 let authMode = 'login'; // 'login' | 'register'
 function toggleAuthMode() {
   authMode = authMode === 'login' ? 'register' : 'login';
-  $('authmodetoggle').textContent = authMode === 'register' ? 'Already have an account? LOG IN' : 'New here? REGISTER';
-  $('pass').placeholder = authMode === 'register' ? 'Create a password (4+ chars)' : 'Password';
+  const register = authMode === 'register';
+  $('authmodetoggle').textContent = register ? 'Already have an account? LOG IN' : 'New here? REGISTER';
+  $('pass').placeholder = register ? 'Create a password (4+ chars)' : 'Password';
+  $('join').textContent = register ? 'CREATE ACCOUNT' : 'ENTER THE FOG';
 }
 $('authmodetoggle').addEventListener('click', toggleAuthMode);
 $('join').addEventListener('click', () => {
