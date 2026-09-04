@@ -47,7 +47,7 @@ let pickedOutfit = 0;
 
 /* Set this to your Ko-fi / BuyMeACoffee page so players can support you.
    Leave empty ('') to hide the Tip Us button entirely. */
-const TIP_URL = ''; // e.g. 'https://ko-fi.com/yourname'
+const TIP_URL = 'https://ko-fi.com/sugadev';
 
 function connect(name, pass) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
