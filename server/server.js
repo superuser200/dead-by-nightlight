@@ -119,7 +119,14 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403).end(); return; }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404).end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    const ext = path.extname(file);
+    // Never let browsers cache the game code/HTML/CSS, or stale builds silently
+    // break the client (e.g. a cached old client.js whose click handlers don't
+    // match the served page).
+    const noCache = ['.html', '.js', '.css', '.json'].includes(ext);
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+    if (noCache) headers['Cache-Control'] = 'no-store';
+    res.writeHead(200, headers);
     res.end(buf);
   });
 });
