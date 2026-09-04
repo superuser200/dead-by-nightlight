@@ -131,7 +131,12 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
 - Anti-cheat already there; add a per-match kill/death summary screen.
 - Accessibility: rebindable keys, FOV slider, brightness/gamma.
 
-- FEATURE (3-strike hook / team loss): hooking no longer insta-kills. Each survivor has a
+- FEATURE (bot fills departed real players): when a real player disconnects mid-match,
+  `onClose` now removes them from the match roster (match.players / match.survivors / as
+  killer) and `fillReplacementBot(match, role, avoid)` spawns a same-role AI bot so the
+  match stays populated (live-server only, IS_LIVE gated). Spawns on a safe spot >=18 units
+  from the reference point and off vault walls; killer replacement reassigns match.killer.
+  Coverage: `test/fill-test.js` (survivor + killer backfill into roster/global players).
   per-match hook counter (`p.hooks`, reset each match, exposed as `hooks` in match state
   and shown in survivor HUD). Hooks 1-2 RELEASE the survivor: they stand up (status='injured'),
   reset bleed/revive timers, and are dropped at a random safe spot far from the killer

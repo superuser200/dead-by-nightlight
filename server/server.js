@@ -613,6 +613,44 @@ function aliveBots() {
   return out;
 }
 
+// backfill a match spot vacated by a real player who disconnected — an AI bot
+// takes the SAME role (survivor or killer) so the match stays populated.
+function fillReplacementBot(match, role, avoid) {
+  if (!IS_LIVE) return;                    // bots are a live-server feature
+  if (match.state !== 'running') return;
+  const now = Date.now();
+  const ref = avoid || (role === 'killer' ? (match.survivors[0] || { x: 0, z: 0 }) : match.killer || { x: 0, z: 0 });
+  let x = rint(-30, 30), z = rint(-30, 30);
+  for (let i = 0; i < 40; i++) {
+    const cx = rint(-34, 34), cz = rint(-34, 34);
+    if (Math.hypot(cx - ref.x, cz - ref.z) < 18) continue;
+    if (!wallBlocked({ role, gates: match.gates, walls: match.walls, y: 0 }, cx, cz)) { x = cx; z = cz; break; }
+  }
+  const b = {
+    ws: null, id: String('B' + (++botIdCounter)), ip: '0.0.0.0',
+    name: botName(), nameLow: '', admin: false,
+    state: 'match', matchId: match.id, role, queued: false,
+    x, y: 0, z, yaw: Math.atan2(-x, z), pitch: role === 'killer' ? -0.35 : -0.2,
+    vy: 0, jumpT: 0, keys: new Set(), inputBuffer: [],
+    lastInputAt: now, flags: { hits: 0, lastWindow: 0, count: 0, badJson: 0 },
+    lastChatAt: 0, lastPing: now, kickT: 0,
+    bot: true, skill: 0.4 + rand() * 0.6,
+    ai: { style: rint(1, 2) === 1 ? 'stealth' : 'rush', focus: null, retarget: now, cd: now, waitT: 0 }, wc: 0,
+    walls: match.walls, gates: match.gates,
+    hp: 2, status: 'alive', carrier: null, reviveT: 0, bleedT: 0, hooks: 0,
+    sprint: 100, attackCd: 0, lungeT: 0, lastHitAt: 0,
+    escaped: false, kills: 0, sac: 0, item: null,
+    outfit: role === 'killer' ? 0 : rint(0, OUTfits.length - 1),
+  };
+  giveBotBase(b);
+  players.set(b.id, b);
+  if (role === 'killer') match.killer = b;
+  else match.survivors.push(b);
+  match.players.push(b);
+  broadcastToast(`A fog spirit takes over as ${role === 'killer' ? 'the killer' : 'a survivor'}.`);
+  log('FILL', match.id, `${role} bot replaced a departed player`);
+}
+
 // --- behavioural planner (runs at ~5 Hz) -------------------------------
 setInterval(() => {
   try {
@@ -1376,7 +1414,16 @@ function onClose(p) {
   if (p.name) broadcastToast(`${p.name} left the fog.`);
   if (p.state === 'match') {
     const m = getMatch(p);
-    if (m) broadcastMatch(m);
+    if (m) {
+      // remove the departed human from the roster, then backfill their slot with a bot
+      const avoid = m.killer ? { x: m.killer.x, z: m.killer.z } : null;
+      const role = p.role;
+      m.players = m.players.filter(q => q.id !== p.id);
+      if (m.survivors) m.survivors = m.survivors.filter(q => q.id !== p.id);
+      if (m.killer && m.killer.id === p.id) m.killer = null;
+      if (m.state === 'running') fillReplacementBot(m, role, role === 'killer' ? null : avoid);
+      broadcastMatch(m);
+    }
   }
   p.state = 'hub';
   p.matchId = null;
