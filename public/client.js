@@ -1026,7 +1026,7 @@ function toggleAuthMode() {
   authMode = authMode === 'login' ? 'register' : 'login';
   const register = authMode === 'register';
   $('authmodetoggle').textContent = register ? 'Already have an account? LOG IN' : 'New here? REGISTER';
-  $('pass').placeholder = register ? 'Create a password (4+ chars)' : 'Password';
+  $('pass').placeholder = register ? 'Create a password' : 'Password';
   $('join').textContent = register ? 'CREATE ACCOUNT' : 'ENTER THE FOG';
   $('email').style.display = register ? 'block' : 'none';
 }
