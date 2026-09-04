@@ -318,7 +318,7 @@ function onRequestReset(p, msg) {
   if (!ident) { p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'Enter your username or email.' })); return; }
   const acct = accounts[ident] || (Object.values(accounts).find(a => a.email === ident));
   // Always reply the same way to avoid revealing which names/emails exist.
-  p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: acct ? 'Reset code sent if this account exists.' : 'Reset code sent if this account exists.' }));
+  p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: 'Reset code sent if this account exists.' }));
   if (!acct) return;
 
   // one-time 6-digit code, stored hashed so a leaked accounts.json can't be used
@@ -326,12 +326,12 @@ function onRequestReset(p, msg) {
   acct.reset = { codeHash: createHash('sha256').update(String(code)).digest('hex'), until: Date.now() + RESET_TTL };
   save('accounts.json', accounts, true);
 
+  // Email is the ONLY delivery path — we never echo the code back to the
+  // requester. If email isn't configured, nothing is disclosed (fail safe).
   if (sendResetEmail(acct, code)) {
-    // emailed
+    p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: 'Reset code sent. Check your inbox (and spam). It expires in 15 minutes.' }));
   } else {
-    // dev fallback (no API key / no email on account): show the code so the
-    // flow is testable end-to-end before an email provider is configured
-    try { p.ws.send(JSON.stringify({ t: 'reset', ok: true, devCode: code, msg: `DEV MODE (no email API): your reset code is ${code}` })); } catch {}
+    p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: 'Reset code could not be emailed. Please try again later.' }));
   }
 }
 
