@@ -231,8 +231,8 @@ function onRegister(p, msg) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Name must be 2-16 letters/numbers.' }));
     return;
   }
-  if (pass.length < 4 || pass.length > 64) {
-    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Password must be 4-64 characters.' }));
+  if (pass.length < 4) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Password must be at least 4 characters.' }));
     return;
   }
   const nameLow = raw.toLowerCase();
