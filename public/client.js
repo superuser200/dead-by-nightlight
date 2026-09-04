@@ -1036,7 +1036,7 @@ $('join').addEventListener('click', () => {
   const pw = $('pass').value;
   const btn = $('join');
   if (n.length < 2) { $('authmsg').textContent = 'Pick a name (2-16 chars).'; return; }
-  if (pw.length < 4) { $('authmsg').textContent = authMode === 'register' ? 'Create a password (4+ chars).' : 'Enter your password.'; return; }
+  if (pw.length === 0) { $('authmsg').textContent = authMode === 'register' ? 'Create a password.' : 'Enter your password.'; return; }
   if (authMode === 'register') {
     const em = $('email').value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('authmsg').textContent = 'Enter a valid email for password recovery.'; return; }
@@ -1071,7 +1071,7 @@ $('rdo').addEventListener('click', () => {
   const pw = $('rpass').value;
   const name = $('rident').value.trim();
   if (!code) { $('rmsg').textContent = 'Enter the reset code from your email.'; return; }
-  if (pw.length < 4) { $('rmsg').textContent = 'New password must be 4+ chars.'; return; }
+  if (pw.length === 0) { $('rmsg').textContent = 'Enter a new password.'; return; }
   $('rmsg').textContent = 'Resetting...';
   send({ t: 'doReset', name, code, pass: pw });
 });

@@ -212,10 +212,6 @@ function onJoin(p, msg) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Name must be 2-16 letters/numbers.' }));
     return;
   }
-  if (pass.length < 4) {
-    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Create a password (4+ chars) to protect this name.' }));
-    return;
-  }
   const nameLow = raw.toLowerCase();
   const now = Date.now();
 
@@ -239,10 +235,6 @@ function onRegister(p, msg) {
   const pass = String(msg.pass || '');
   if (raw.length < 2 || raw.length > 16 || !/^[\w\u00C0-\u00FF .\-]{2,16}$/.test(raw)) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Name must be 2-16 letters/numbers.' }));
-    return;
-  }
-  if (pass.length < 4) {
-    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Password must be at least 4 characters.' }));
     return;
   }
   const email = normalizeEmail(msg.email);
@@ -345,9 +337,6 @@ function onDoReset(p, msg) {
   const have = createHash('sha256').update(String(msg.code || '')).digest('hex');
   if (have !== acct.reset.codeHash) {
     p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'Wrong reset code.' })); return;
-  }
-  if (pass.length < 4) {
-    p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'New password must be at least 4 characters.' })); return;
   }
   const salt = randomBytes(16).toString('hex');
   acct.salt = salt;
