@@ -120,6 +120,8 @@ let genMeshes = new Map(), hookMeshes = new Map(), gateMeshes = new Map();
 let itemMeshes = new Map(), hatchMesh = null;
 let wallMeshes = [], powerMesh = null;
 let targetPos = new Map();      // id -> {x,z,y,yaw,status,carrier,hp}
+let prevPos = new Map();        // id -> {x,z,y} snapshot BEFORE the latest target (for interpolation)
+let lastServerT = 0;            // performance.now() of the most recent state frame
 
 const isDowned = (s) => s === 'downed';
 const isDead = (s) => s === 'dead' || s === 'escaped';
@@ -343,7 +345,7 @@ function powerGroup() {
 function leaveMatch() {
   if (matchGroup) { scene.remove(matchGroup); matchGroup = null; }
   playerMeshes.forEach((o) => scene.remove(o.group));
-  playerMeshes.clear(); targetPos.clear();
+  playerMeshes.clear(); targetPos.clear(); prevPos.clear();
   itemMeshes.clear(); genMeshes.clear(); hookMeshes.clear(); gateMeshes.clear(); hatchMesh = null;
   wallMeshes = []; powerMesh = null;
   $('mm').style.display = 'none';
@@ -523,10 +525,17 @@ function animate() {
     const t = targetPos.get(id);
     if (!t) return;
     const g = entry.group;
-    const prevX = g.position.x, prevZ = g.position.z;
-    g.position.x += (t.x - g.position.x) * 0.25 * delta;
-    g.position.z += (t.z - g.position.z) * 0.25 * delta;
-    g.position.y += (t.y - g.position.y) * 0.4 * delta;
+    const cur = t;
+    const prev = prevPos.get(id) || { x: cur.x, y: cur.y, z: cur.z };
+    // interpolate between the previous and latest server position via render time,
+    // so fast movers (killer) glide smoothly between 20Hz frames instead of stepping.
+    const alpha = matchState !== 'hub' ? clamp((performance.now() - lastServerT) / 45, 0, 1) : 1;
+    const ix = prev.x + (cur.x - prev.x) * alpha;
+    const iz = prev.z + (cur.z - prev.z) * alpha;
+    const iy = prev.y + (cur.y - prev.y) * alpha;
+    g.position.x += (ix - g.position.x) * Math.min(1, 0.5 * delta);
+    g.position.z += (iz - g.position.z) * Math.min(1, 0.5 * delta);
+    g.position.y += (iy - g.position.y) * Math.min(1, 0.4 * delta);
     targetYaw(g, t.yaw);
     // status styling
     const isYou = id === selfId;
@@ -537,7 +546,7 @@ function animate() {
     else g.position.y = Math.max(g.position.y, 0);
     // animated limbs (only upright, living figures)
     if (!downed && !dead) {
-      const moving = Math.hypot(g.position.x - prevX, g.position.z - prevZ) > 0.001;
+      const moving = Math.hypot(iz - prev.z, ix - prev.x) > 0.001;
       setPose(entry, moving, false, false);
     } else {
       setPose(entry, false, dead || (downed && isYou && t.status === 'dead'), downed);
@@ -921,13 +930,18 @@ function ifMenu() {
       else if (m.status === 'dead') { sfx('sting'); }
     } else if (m.hp < hprev && m.status === 'injured') { sfx('hurt'); hurtFlash(); }
   }
+  const _nowT = performance.now();
+  const isNewFrame = _nowT - lastServerT > 20; // a fresh server state, not a same-frame re-call
+  if (isNewFrame) lastServerT = _nowT;
   for (const p of matchPlayers) {
     const e = ensurePlayer(p);
+    const cur = targetPos.get(p.id);
+    if (isNewFrame && cur && !cur.hub) prevPos.set(p.id, { x: cur.x, y: cur.y, z: cur.z });
     targetPos.set(p.id, { x: p.x, y: p.y, z: p.z, yaw: p.yaw, status: p.status, hp: p.hp, carrier: p.carrier });
   }
   // remove gone players
   const seen = new Set(matchPlayers.map(p => p.id));
-  playerMeshes.forEach((_, id) => { if (!seen.has(id) && id !== selfId) { const e = playerMeshes.get(id); if (e) { matchGroup && matchGroup.remove(e.group); } playerMeshes.delete(id); targetPos.delete(id); } });
+  playerMeshes.forEach((_, id) => { if (!seen.has(id) && id !== selfId) { const e = playerMeshes.get(id); if (e) { matchGroup && matchGroup.remove(e.group); } playerMeshes.delete(id); targetPos.delete(id); prevPos.delete(id); } });
 }
 
 let hubCount = null;
