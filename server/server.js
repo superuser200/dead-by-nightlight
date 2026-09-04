@@ -922,11 +922,13 @@ function driveBot(p, match) {
       if (commit || !a.focus) {
         walkTo(p, s.x, s.z);
         const d = dist2(p, s);
-        if (d <= (2.7 + sk * 0.6) * (2.7 + sk * 0.6)) {
+        // must be much closer and facing nearly dead-on before a bot swings —
+        // this keeps aggressive killers from instantly downing a walking survivor
+        if (d <= (1.9 + sk * 0.4) * (1.9 + sk * 0.4)) {
           const facing = FWD(p.yaw);
           const dx = s.x - p.x, dz = s.z - p.z;
           const dl = Math.hypot(dx, dz) || 1;
-          if (dx / dl * facing.x + dz / dl * facing.z > (1.15 - sk * 0.75)) p.keys.add('m1'); // sharper aim at higher skill
+          if (dx / dl * facing.x + dz / dl * facing.z > (1.3 - sk * 0.5)) p.keys.add('m1'); // sharper aim at higher skill
         }
         if (d < (12 + sk * 6) * (12 + sk * 6)) p.keys.add('shift');
       } else if (a.focus) {
@@ -1071,7 +1073,7 @@ function moveEntity(p, speed, dt) {
 function doAttack(match, killer, kh) {
   kh = kh || KILLERS[0];
   const now = Date.now();
-  if (now - killer.lastHitAt < 250) return;
+  if (now - killer.lastHitAt < 900) return;
   killer.lastHitAt = now;
   const facing = FWD(killer.yaw);
   const range = kh.lungedmg != null ? 2.4 + kh.lungedmg * 0.5 : 2.7;

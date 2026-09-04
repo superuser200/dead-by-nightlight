@@ -130,3 +130,5 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
 - Sound: killer-special stingers, heartbeat intensity by distance, chase music.
 - Anti-cheat already there; add a per-match kill/death summary screen.
 - Accessibility: rebindable keys, FOV slider, brightness/gamma.
+
+- TUNE (too-easy downing): killer-bot swing now requires much closer range (1.9 + sk*0.4 vs 2.7 + sk*0.6) and a tighter facing cone (1.3 - sk*0.5 vs 1.15 - sk*0.75); doAttack cooldown 250ms -> 900ms so a killer can't chain-down a walking survivor. Core downing mechanic preserved but far less frequent.
