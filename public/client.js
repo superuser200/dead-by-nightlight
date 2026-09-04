@@ -804,7 +804,7 @@ function updateHud() {
     pingEl.style.display = '';
   } else pingEl.style.display = 'none';
   if (role === 'killer') {
-    setChip('obj', 'Hunt & sacrifice survivors (3+ to win)');
+    setChip('obj', 'Down survivors & hook them 3 TIMES to end the night');
     bars('stamina', my.sprint / 100 || 0);
     setChip('stats', `Sacrifices: ${(matchPlayers.filter(p => p.role === 'survivor' && (p.status === 'dead')).length)}/${matchPlayers.filter(p => p.role === 'survivor').length}`);
   } else if (role === 'survivor') {
@@ -821,7 +821,7 @@ function updateHud() {
         : (matchMap && matchMap.gensReady) ? 'All gens done — find the POWER SWITCH & flip it!'
         : `Repair generators… ${matchMap ? matchMap.gensDone : 0}/6`;
       setChip('obj', obj + (kname ? `  |  ${kname} hunts` : ''));
-      setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}` + (myItem ? `  |  [E] ${myItem === 'medkit' ? 'Medkit' : myItem === 'toolbox' ? 'Toolbox' : myItem === 'flash' ? 'Flashlight' : 'Hatch Key'}` : ''));
+      setChip('stats', `HP ${'♥'.repeat(Math.max(0, Math.min(2, my.hp)))}${'♡'.repeat(Math.max(0, 2 - my.hp))}` + (my.hooks ? `  |  Hooked ${my.hooks}/3` : '') + (myItem ? `  |  [E] ${myItem === 'medkit' ? 'Medkit' : myItem === 'toolbox' ? 'Toolbox' : myItem === 'flash' ? 'Flashlight' : 'Hatch Key'}` : ''));
       bars('hp', (my.hp || 0) / 2);
     }
   } else {
@@ -921,6 +921,7 @@ function ifMenu() {
   if (m) {
     const pprev = my.status, hprev = my.hp;
     my.hp = m.hp; my.status = m.status; my.sprint = m.sprint != null ? m.sprint : my.sprint;
+    my.hooks = m.hooks != null ? m.hooks : my.hooks;
     my.x = m.x; my.y = m.y; my.z = m.z;
     myItem = m.item || null;
     if (m.role === 'survivor' && m.status !== pprev) {

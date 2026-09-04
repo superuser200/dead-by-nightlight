@@ -347,6 +347,8 @@ function startMatch(group) {
     gensReady: false,
     gatesPowered: false,
     killerKills: 0,
+    tripleHook: false,         // a survivor was hooked 3x -> survivors instantly lose
+    releaseSpots: null,        // filled after killer spawn is known (safe re-release positions)
     items: spawnItems(objs, group.length),
     keys: [{ id: 'hatch', x: rint(-34, 34), z: rint(-34, 34), open: false }],
   };
@@ -369,6 +371,7 @@ function startMatch(group) {
     p.carrier = null;
     p.reviveT = 0;
     p.bleedT = 0;
+    p.hooks = 0;               // 3-strike hook counter (resets each match)
     p.sprint = 100;          // killer stamina
     p.attackCd = 0;
     p.lungeT = 0;
@@ -379,6 +382,16 @@ function startMatch(group) {
     p.item = null;
     send(p, { t: 'matchStart', match: { id: match.id, role: p.role, killerId: match.killerId, map: matchView(match) } });
   });
+
+  // safe spots to drop a released survivor — far from the killer, inside the arena
+  const kx = match.killer.x, kz = match.killer.z;
+  match.releaseSpots = [];
+  const tries = 60;
+  for (let i = 0; i < tries; i++) {
+    const x = rint(-36, 36), z = rint(-36, 36);
+    if (Math.hypot(x - kx, z - kz) >= 28 && !wallBlocked(match.killer, x, z)) match.releaseSpots.push({ x, z });
+  }
+  if (!match.releaseSpots.length) match.releaseSpots = [{ x: -kx * 0.8, z: -kz * 0.8 }];
 
   matches.set(match.id, match);
   broadcastToast(`Match ${match.id} started — ${match.killer.name} hunts ${match.survivors.length} survivors.`);
@@ -773,8 +786,25 @@ function simulateMatch(match) {
           if (p.keys.has('e')) {
             const nearHook = match.hooks.some((h) => dist2(c, h) <= 2.4 * 2.4);
             if (nearHook) {
-              killSurvivor(match, c, 'sacrificed', p);
+              // 3-strike hook system: hook 1-2 releases the survivor, hook 3 ends the game
+              c.hooks = (c.hooks || 0) + 1;
               p.carrier = null;
+              if (c.hooks >= 3) {
+                match.tripleHook = true;
+                broadcastToast(`${c.name} was hooked for the 3rd time — the survivors are finished.`);
+                log('HOOK3', match.id, `${p.name} triple-hooked ${c.name}`);
+              } else {
+                // released to keep playing: stand back up away from the hook
+                c.status = 'injured';
+                c.bleedT = 0; c.reviveT = 0;
+                const spot = match.releaseSpots && match.releaseSpots.length
+                  ? match.releaseSpots[Math.floor(rand() * match.releaseSpots.length)]
+                  : { x: -c.x * 0.8, z: -c.z * 0.8 };
+                c.x = spot.x; c.z = spot.z; c.y = 0; c.vy = 0;
+                broadcastToast(`${c.name} was hooked (${c.hooks}/3) and set free.`);
+                send(c, { t: 'toast', msg: `Hooked (${c.hooks}/3) — the killer lets go. Run!` });
+                log('HOOK', match.id, `${p.name} hooked ${c.name} (${c.hooks}/3)`);
+              }
             }
           }
           if (p.keys.has('space')) {
@@ -1175,12 +1205,13 @@ function checkMatchEnd(match) {
     // killer disconnected — survivors all escape
     for (const s of match.survivors) if (players.has(s.id) && s.state === 'match' && s.status !== 'dead') escapeSurvivor(match, s);
   }
-  if (aliveorwaiting.length === 0 || killerGone) {
+  if (aliveorwaiting.length === 0 || killerGone || match.tripleHook) {
     const esc = match.survivorsEscaped.length;
     const k = match.killerKills;
     let winner = 'draw';
     let killerWin = false, survWin = false;
     if (killerGone) survWin = true;
+    else if (match.tripleHook) killerWin = true; // 3rd hook = survivors instantly lose, even mid-escape
     else {
       if (esc >= 3) survWin = true;
       else if (k >= 3) killerWin = true;
@@ -1254,6 +1285,7 @@ function broadcastMatch(match) {
       hp: p.hp, status: p.status, carrier: p.carrier ? { id: p.carrier } : null,
       outfit: p.outfit || 0,
       item: p.item || null,
+      hooks: p.role === 'survivor' ? (p.hooks || 0) : undefined,
       sprint: p.role === 'killer' ? p.sprint : undefined,
       progress: p.reviveT ? p.reviveT : undefined,
     });

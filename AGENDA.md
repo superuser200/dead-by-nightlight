@@ -131,7 +131,14 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
 - Anti-cheat already there; add a per-match kill/death summary screen.
 - Accessibility: rebindable keys, FOV slider, brightness/gamma.
 
-- FIX (killer/survivor jitter-teleport while moving): client just did a catch-up lerp
+- FEATURE (3-strike hook / team loss): hooking no longer insta-kills. Each survivor has a
+  per-match hook counter (`p.hooks`, reset each match, exposed as `hooks` in match state
+  and shown in survivor HUD). Hooks 1-2 RELEASE the survivor: they stand up (status='injured'),
+  reset bleed/revive timers, and are dropped at a random safe spot far from the killer
+  (`match.releaseSpots`, picked from positions >=28 units from killer, off vault walls).
+  The 3rd hook sets `match.tripleHook` → `checkMatchEnd` ends the game IMMEDIATELY as an
+  INSTANT KILLER WIN (all survivors lose), even if others are still alive or mid-escape.
+  Killer HUD hint updated. Coverage: `test/hook3-test.js` (module-level, in shared vm scope).
   (`0.25*delta`) to the latest 20Hz server position, so fast movers (killer ~12 u/s,
   lunge 1.7x) visibly stepped/snapped. Added two-sample interpolation: on each fresh
   state frame the previous position is snapshotted into `prevPos`, and `animate()`
