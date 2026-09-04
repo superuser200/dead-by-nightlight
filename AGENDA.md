@@ -177,4 +177,4 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   key it falls back to echoing the code to the requester (DEV MODE) so the flow
   is testable before a provider is configured. Coverage: local e2e probe verified
   wrong-code rejected, correct code resets, new password logs in, old password
-  rejected. Client reset UI in login overlay (public/index.html + client.js).
+  reset could be gamed publicly; reset aligns to the email configured per account.

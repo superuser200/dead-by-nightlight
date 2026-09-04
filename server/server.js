@@ -14,7 +14,9 @@ const { randomBytes, createHash } = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT || 8080);
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'fogmaster-dev-key';
+// Admin key comes ONLY from the ADMIN_TOKEN env var in production (never a committed
+// fallback — the repo is public). For local dev/testing a known dev key is allowed.
+const ADMIN_TOKEN = process.env.NODE_ENV === 'production' ? (process.env.ADMIN_TOKEN || '') : (process.env.ADMIN_TOKEN || 'fogmaster-dev-key');
 // Email for password reset. Set EMAIL_API_KEY + EMAIL_FROM to enable real delivery
 // (Resend HTTP API by default). Without a key, reset codes are echoed in a toast
 // (dev/test only) so the flow is usable before a mail provider is configured.
@@ -1638,4 +1640,12 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('  Anti-cheat : server-authoritative movement,');
   console.log('               input-flood gate, auto-ban, ban tool.');
   console.log('==================================================');
+  // Self keep-alive: hit our own /healthz on a timer so free tiers (e.g. Render)
+  // that spin down on idle see regular traffic and stay warm between real players.
+  setInterval(() => {
+    try {
+      const r = http.get({ host: '127.0.0.1', port: PORT, path: '/healthz', timeout: 4000 }, () => {});
+      r.on('error', () => {});
+    } catch {}
+  }, 180000);
 });
