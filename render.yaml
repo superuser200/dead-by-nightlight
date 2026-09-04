@@ -15,5 +15,13 @@ services:
       - key: ADMIN_TOKEN
         generateValue: true
         sync: false
+      # Password-reset email (Resend). Set the real value in Render's dashboard:
+      #   New > Web Service > your service > Environment > add EMAIL_API_KEY (your
+      #   Resend API key) and optionally EMAIL_FROM. Until set, reset codes are
+      #   shown on-screen (DEV MODE) instead of emailed.
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: NODE_VERSION
         value: 20
