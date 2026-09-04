@@ -14,6 +14,7 @@ const ok = (n, c, d) => { console.log((c ? 'PASS' : 'FAIL') + '  ' + n + (d ? ' 
 
 function stubModule(requested) {
   if (requested === 'http') return { createServer: () => ({ listen() {}, close() {} }) };
+  if (requested === 'https') return { request: () => ({ on() { return this; }, write() {}, end() {} }) };
   if (requested === 'ws') return { WebSocketServer: function () { this.on = function(){}; } };
   if (requested === 'crypto') return { randomBytes: () => Buffer.alloc(8), createHash: () => ({ update() { return this; }, digest() { return 'x'; } }) };
   if (requested === 'path') return path;

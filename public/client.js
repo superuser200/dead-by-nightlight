@@ -52,6 +52,7 @@ function connect(name, pass) {
     t: authMode === 'register' ? 'register' : 'login',
     name: name || $('name').value.trim(),
     pass: pass || '',
+    email: authMode === 'register' ? $('email').value.trim() : '',
     outfit: pickedOutfit,
     admin: $('adminkey').value.trim(),
   }));
@@ -112,6 +113,10 @@ function handle(msg) {
     case 'chat': chat(msg.from, msg.msg, msg.admin); break;
     case 'queue': queueSize = msg.size; updateHud(); break;
     case 'queueInfo': queueSize = msg.size; matchesActive = msg.matches; updateHud(); break;
+    case 'reset':
+      $('rmsg').textContent = msg.msg || '';
+      if (msg.devCode) $('rcode').value = msg.devCode;
+      break;
     case 'ejected': sfx('sting'); toast(msg.msg, 'bad'); break;
     case 'pong': if (msg.ts) lastPing.rtt = performance.now() - Number(msg.ts); break;
     case 'sfx': sfx(msg.kind === 'pickup' ? 'power' : 'sting'); break;
@@ -1023,6 +1028,7 @@ function toggleAuthMode() {
   $('authmodetoggle').textContent = register ? 'Already have an account? LOG IN' : 'New here? REGISTER';
   $('pass').placeholder = register ? 'Create a password (4+ chars)' : 'Password';
   $('join').textContent = register ? 'CREATE ACCOUNT' : 'ENTER THE FOG';
+  $('email').style.display = register ? 'block' : 'none';
 }
 $('authmodetoggle').addEventListener('click', toggleAuthMode);
 $('join').addEventListener('click', () => {
@@ -1031,11 +1037,45 @@ $('join').addEventListener('click', () => {
   const btn = $('join');
   if (n.length < 2) { $('authmsg').textContent = 'Pick a name (2-16 chars).'; return; }
   if (pw.length < 4) { $('authmsg').textContent = authMode === 'register' ? 'Create a password (4+ chars).' : 'Enter your password.'; return; }
+  if (authMode === 'register') {
+    const em = $('email').value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('authmsg').textContent = 'Enter a valid email for password recovery.'; return; }
+  }
   btn.disabled = true;
   $('authmsg').textContent = 'Sending...';
   connect(n, pw);
 });
-['name', 'pass', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
+['name', 'pass', 'email', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
+
+/* ---------------- password reset ---------------- */
+function showReset() {
+  $('login').style.display = 'none';
+  $('reset').style.display = 'flex';
+  $('rmsg').textContent = '';
+  $('rcode').value = '';
+}
+function showLoginFromReset() {
+  $('reset').style.display = 'none';
+  $('login').style.display = 'flex';
+}
+$('forgotlink').addEventListener('click', (e) => { e.preventDefault(); showReset(); });
+$('rback').addEventListener('click', (e) => { e.preventDefault(); showLoginFromReset(); });
+$('rrequest').addEventListener('click', () => {
+  const ident = $('rident').value.trim();
+  if (!ident) { $('rmsg').textContent = 'Enter your username or email.'; return; }
+  $('rmsg').textContent = 'Sending code...';
+  send({ t: 'requestReset', name: ident });
+});
+$('rdo').addEventListener('click', () => {
+  const code = $('rcode').value.trim();
+  const pw = $('rpass').value;
+  const name = $('rident').value.trim();
+  if (!code) { $('rmsg').textContent = 'Enter the reset code from your email.'; return; }
+  if (pw.length < 4) { $('rmsg').textContent = 'New password must be 4+ chars.'; return; }
+  $('rmsg').textContent = 'Resetting...';
+  send({ t: 'doReset', name, code, pass: pw });
+});
+['rident', 'rcode', 'rpass'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('rdo').click(); }));
 
 // outfit picker
 (function buildOutfitPicker() {

@@ -42,6 +42,7 @@
     <p class="sub">1 killer. 10 survivors. One eternal night.</p>
     <input id="name" maxlength="16" placeholder="Username" autocomplete="username" />
     <input id="pass" type="password" placeholder="Password" autocomplete="current-password" />
+    <input id="email" type="email" placeholder="Email (for password recovery)" autocomplete="email" />
     <input id="adminkey" maxlength="40" placeholder="Admin key (optional)" autocomplete="off" />
     <div id="outfit-row">
       <span id="outfit-label">Outfit: <b>Ranger</b></span>
@@ -50,7 +51,23 @@
     <button id="join" class="btn">ENTER THE FOG</button>
     <button id="authmodetoggle" type="button" class="ghostbtn">New here? REGISTER</button>
     <p id="authmsg" class="err"></p>
+    <div id="forgot-row"><a id="forgotlink" href="#">Forgot password?</a></div>
     <a href="https://discord.gg/JzVPAjJqaE" target="_blank" class="discord-link">Join our Discord</a>
+  </div>
+</div>
+
+<!-- Password reset -->
+<div id="reset" class="overlay" style="display:none">
+  <div class="panel">
+    <h2 class="title" style="font-size:22px">RESET <span>PASSWORD</span></h2>
+    <p class="sub">Enter your username or email to get a reset code.</p>
+    <input id="rident" placeholder="Username or email" autocomplete="username" />
+    <input id="rcode" placeholder="Reset code" autocomplete="off" />
+    <input id="rpass" type="password" placeholder="New password (4+ chars)" autocomplete="new-password" />
+    <button id="rrequest" class="btn">SEND CODE</button>
+    <button id="rdo" class="btn" style="background:linear-gradient(180deg,#3f7ca0,#2c5c80)">RESET PASSWORD</button>
+    <p id="rmsg" class="err"></p>
+    <div id="forgot-row"><a id="rback" href="#">Back to login</a></div>
   </div>
 </div>
 

@@ -168,3 +168,13 @@ queue, rest survivor). Bots fill matches so a solo player always gets a game.
   auto tick to satisfy "no initial bots". Coverage: `test/smoke.js` auto-match
   assertions (all 3 online placed into the SAME match M1 with killer+survivor
   roles).
+- FEATURE (email-verified PASSWORD RESET): registration now collects an email
+  (stored lowercased on the account). A "Forgot password?" link opens a reset
+  panel: player submits username/email -> `onRequestReset` emails a 6-digit code
+  (stored HASHED, expires in 15 min). `onDoReset` verifies the code, re-salts and
+  re-hashes the new password, clears the code. Email delivery is pluggable via
+  env (`EMAIL_API_KEY` = Resend HTTP API key, optional `EMAIL_FROM`); without a
+  key it falls back to echoing the code to the requester (DEV MODE) so the flow
+  is testable before a provider is configured. Coverage: local e2e probe verified
+  wrong-code rejected, correct code resets, new password logs in, old password
+  rejected. Client reset UI in login overlay (public/index.html + client.js).

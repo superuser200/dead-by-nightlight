@@ -22,6 +22,11 @@ input:focus { border-color: #58637e; }
 .ghostbtn { width: 100%; padding: 11px; margin-top: 8px; border: 1px solid #31415f; border-radius: 8px; background: rgba(20,28,48,.6); color: #aebfe2; font-size: 14px; letter-spacing: .5px; cursor: pointer; }
 .ghostbtn:hover { background: rgba(40,60,96,.7); color: #dfe7f5; }
 
+#forgot-row { margin-top: 10px; text-align: center; }
+#forgot-row a { color: #8fb0e0; font-size: 13px; text-decoration: none; cursor: pointer; }
+#forgot-row a:hover { color: #cfe0ff; text-decoration: underline; }
+#email { display: none; }
+
 .err { color: #ff7a6e; font-size: 13px; min-height: 18px; margin-top: 8px; }
 
 .discord-link { display: inline-block; margin-top: 14px; padding: 10px 20px; background: #5865F2; color: #fff; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600; letter-spacing: .5px; transition: background .2s; }

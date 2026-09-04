@@ -7,6 +7,7 @@
  * ==========================================================================*/
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { randomBytes, createHash } = require('crypto');
@@ -14,6 +15,11 @@ const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT || 8080);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'fogmaster-dev-key';
+// Email for password reset. Set EMAIL_API_KEY + EMAIL_FROM to enable real delivery
+// (Resend HTTP API by default). Without a key, reset codes are echoed in a toast
+// (dev/test only) so the flow is usable before a mail provider is configured.
+const EMAIL_API_KEY = process.env.EMAIL_API_KEY || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || '';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // AI: fill empty spots so the night is never empty (only on the live server,
@@ -183,6 +189,8 @@ function onMessage(p, raw) {
     case 'join': return onJoin(p, msg);
     case 'login': return onJoin(p, msg);
     case 'register': return onRegister(p, msg);
+    case 'requestReset': return onRequestReset(p, msg);
+    case 'doReset': return onDoReset(p, msg);
     case 'input': return onInput(p, msg);
     case 'chat': return onChat(p, msg);
     case 'queue': return onQueue(p, true);
@@ -235,13 +243,18 @@ function onRegister(p, msg) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Password must be at least 4 characters.' }));
     return;
   }
+  const email = normalizeEmail(msg.email);
+  if (!validEmail(email)) {
+    p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'Enter a valid email for password recovery.' }));
+    return;
+  }
   const nameLow = raw.toLowerCase();
   const now = Date.now();
   if (accounts[nameLow]) {
     p.ws.send(JSON.stringify({ t: 'auth', ok: false, msg: 'That name is already taken. Log in instead.' }));
     return;
   }
-  accounts[nameLow] = makeAccount(raw, pass);
+  accounts[nameLow] = makeAccount(raw, pass, email);
   save('accounts.json', accounts, true);
   setupPlayer(p, raw, nameLow, msg, now);
   if (p.ws) p.ws.send(JSON.stringify({ t: 'toast', msg: `Account created for ${raw} — welcome.` }));
@@ -281,16 +294,84 @@ function setupPlayer(p, raw, nameLow, msg, now) {
 }
 
 // --- account credentials ---
-function makeAccount(name, pass) {
+function makeAccount(name, pass, email) {
   const salt = randomBytes(16).toString('hex');
-  return { name, salt, hash: hashPass(pass, salt) };
+  return { name, salt, hash: hashPass(pass, salt), email: normalizeEmail(email) };
 }
+function normalizeEmail(e) { return String(e || '').trim().toLowerCase(); }
+function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '')); }
 function hashPass(pass, salt) {
   return createHash('sha256').update(String(salt) + ':' + String(pass)).digest('hex');
 }
 function verifyPass(pass, acct) {
   if (!acct || !acct.salt || !acct.hash) return false;
   return hashPass(pass, acct.salt) === acct.hash;
+}
+
+// --- password reset (email verified) ---
+const RESET_TTL = 15 * 60 * 1000; // 15 minutes
+
+function onRequestReset(p, msg) {
+  const ident = String(msg.name || msg.email || '').trim().toLowerCase();
+  if (!ident) { p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'Enter your username or email.' })); return; }
+  const acct = accounts[ident] || (Object.values(accounts).find(a => a.email === ident));
+  // Always reply the same way to avoid revealing which names/emails exist.
+  p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: acct ? 'Reset code sent if this account exists.' : 'Reset code sent if this account exists.' }));
+  if (!acct) return;
+
+  // one-time 6-digit code, stored hashed so a leaked accounts.json can't be used
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  acct.reset = { codeHash: createHash('sha256').update(String(code)).digest('hex'), until: Date.now() + RESET_TTL };
+  save('accounts.json', accounts, true);
+
+  if (sendResetEmail(acct, code)) {
+    // emailed
+  } else {
+    // dev fallback (no API key / no email on account): show the code so the
+    // flow is testable end-to-end before an email provider is configured
+    try { p.ws.send(JSON.stringify({ t: 'reset', ok: true, devCode: code, msg: `DEV MODE (no email API): your reset code is ${code}` })); } catch {}
+  }
+}
+
+function onDoReset(p, msg) {
+  const nameLow = String(msg.name || '').trim().toLowerCase();
+  const acct = accounts[nameLow];
+  const pass = String(msg.pass || '');
+  if (!acct || !acct.reset || acct.reset.until < Date.now()) {
+    p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'No valid reset in progress. Request a new code.' })); return;
+  }
+  const have = createHash('sha256').update(String(msg.code || '')).digest('hex');
+  if (have !== acct.reset.codeHash) {
+    p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'Wrong reset code.' })); return;
+  }
+  if (pass.length < 4) {
+    p.ws.send(JSON.stringify({ t: 'reset', ok: false, msg: 'New password must be at least 4 characters.' })); return;
+  }
+  const salt = randomBytes(16).toString('hex');
+  acct.salt = salt;
+  acct.hash = hashPass(pass, salt);
+  delete acct.reset;
+  save('accounts.json', accounts, true);
+  p.ws.send(JSON.stringify({ t: 'reset', ok: true, msg: 'Password reset! Log in with your new password.' }));
+}
+
+function sendResetEmail(acct, code) {
+  if (!EMAIL_API_KEY || !validEmail(acct.email)) return false;
+  const to = acct.email;
+  const from = EMAIL_FROM || 'DEAD BY NIGHTLIGHT <no-reply@resend.dev>';
+  const body = { from, to, subject: 'DEAD BY NIGHTLIGHT — password reset code',
+    text: `Hello ${acct.name},\n\nYour password reset code is:\n\n  ${code}\n\nIt expires in 15 minutes. If you didn't request this, you can ignore it.\n` };
+  const data = JSON.stringify(body);
+  try {
+    const req = https.request({
+      host: 'api.resend.com', path: '/emails', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EMAIL_API_KEY}`, 'Content-Length': Buffer.byteLength(data) },
+    }, (res) => res.resume());
+    req.on('error', () => {});
+    req.write(data);
+    req.end();
+  } catch {}
+  return true;
 }
 
 function onInput(p, msg) {

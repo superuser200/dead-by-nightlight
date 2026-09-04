@@ -16,7 +16,7 @@ function makeClient(name, adminKey, mode) {
   return new Promise((resolve, reject) => {
     const ws = new WS(URL);
     const c = { name, ws, auth: null, matchStart: null, states: 0, toasts: [], matchEnd: null, ejected: null, adminSnap: null, byType: {}, chat: null };
-    ws.on('open', () => ws.send(JSON.stringify({ t, name, pass: 'pw' + String(name).length + 'xyz', admin: adminKey || '' })));
+    ws.on('open', () => ws.send(JSON.stringify({ t, name, pass: 'pw' + String(name).length + 'xyz', email: 'p' + String(name).toLowerCase() + '@test.dev', admin: adminKey || '' })));
     ws.on('message', (d) => {
       const m = JSON.parse(d.toString());
       c.byType[m.t] = (c.byType[m.t] || 0) + 1;
