@@ -663,7 +663,6 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'enter') { e.preventDefault(); focusChat(); return; }
   if (k === 'm') { sfxMuted = !sfxMuted; toast(sfxMuted ? 'Sound muted (M)' : 'Sound on (M)'); return; }
-  if (k === 'q') { if (e.repeat) return; send({ t: 'queue' }); return; }
   if (['w', 'a', 's', 'd', 'shift', 'e', ' '].includes(k)) keys.add(k === ' ' ? 'space' : k === 'shift' ? 'shift' : k);
 });
 document.addEventListener('keyup', (e) => {
@@ -803,7 +802,7 @@ function setChip(id, txt) { $(id).textContent = txt; }
 
 function updateHud() {
   const map = matchMap && matchMap.mapName ? ' · ' + matchMap.mapName : '';
-  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/6` : `Hub · ${hubPlayers.length} souls · queue ${queueSize} · ${matchesActive} game${matchesActive === 1 ? '' : 's'}`);
+  setChip('online', matchState !== 'hub' ? `Match ${matchMap ? matchMap.id : ''}${map} · Gen ${matchMap ? matchMap.gensDone : 0}/6` : `Hub · ${hubPlayers.length} souls · ${matchesActive} game${matchesActive === 1 ? '' : 's'}`);
   setChip('role', !role ? 'RECRUIT' : role === 'killer' ? 'KILLER' : 'SURVIVOR');
   const clkEl = $('clock');
   if (matchState !== 'hub' && matchMap && matchMap.clock != null) {
@@ -840,7 +839,7 @@ function updateHud() {
       bars('hp', (my.hp || 0) / 2);
     }
   } else {
-    setChip('obj', 'Press Q to queue for a match — first in gets the knife');
+    setChip('obj', 'Searching for players — match starts automatically…');
     bars('hp', 0); bars('stamina', 0);
   }
 }
