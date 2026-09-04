@@ -80,6 +80,7 @@
     <div id="clock" class="chip"></div>
     <div id="ping" class="chip"></div>
     <div id="stats" class="chip"></div>
+    <button id="tiplink" class="chip" style="border-color:#ffd166; color:#ffe08a;">☕ Tip Us</button>
   </div>
   <div id="bars"></div>
   <div id="prompt"></div>
@@ -94,6 +95,18 @@
   <div id="stick"></div>
   <button id="taction">USE</button>
   <button id="trun">RUN</button>
+</div>
+
+<!-- Tip / support overlay -->
+<div id="tip" class="overlay" style="display:none">
+  <div class="panel">
+    <h2 class="title" style="font-size:22px">SUPPORT <span>US</span></h2>
+    <p class="sub">Loving the night? A tip keeps the servers alive and the fog rolling. Every bit helps.</p>
+    <p id="tipmsg" class="err">Loading tip link…</p>
+    <button id="tipopen" class="btn">OPEN TIP PAGE</button>
+    <button id="tipclose" class="ghostbtn">Close</button>
+    <div id="forgot-row"><a id="tipback" href="#" onclick="return false;">Back to the game</a></div>
+  </div>
 </div>
 
 <!-- Chat -->

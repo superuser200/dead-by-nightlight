@@ -45,6 +45,10 @@ let pickItem = null;
 let myItem = null;
 let pickedOutfit = 0;
 
+/* Set this to your Ko-fi / BuyMeACoffee page so players can support you.
+   Leave empty ('') to hide the Tip Us button entirely. */
+const TIP_URL = ''; // e.g. 'https://ko-fi.com/yourname'
+
 function connect(name, pass) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
@@ -1046,6 +1050,20 @@ $('join').addEventListener('click', () => {
   connect(n, pw);
 });
 ['name', 'pass', 'email', 'adminkey'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); }));
+
+/* ---------------- tip / support ---------------- */
+function showTip() {
+  if (!TIP_URL) return;
+  $('tip').style.display = 'flex';
+  $('tipmsg').textContent = 'Support the devs on Ko-fi — every tip keeps the fog rolling!';
+}
+function hideTip() { $('tip').style.display = 'none'; }
+$('tiplink').addEventListener('click', showTip);
+$('tipclose').addEventListener('click', hideTip);
+$('tipback').addEventListener('click', (e) => { e.preventDefault(); hideTip(); });
+$('tipopen').addEventListener('click', () => { if (TIP_URL) window.open(TIP_URL, '_blank'); });
+// Hidden entirely (not just inert) when no tip page is configured.
+if (!TIP_URL) { $('tiplink').style.display = 'none'; }
 
 /* ---------------- password reset ---------------- */
 function showReset() {
