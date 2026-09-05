@@ -49,20 +49,58 @@ let pickedOutfit = 0;
    Leave empty ('') to hide the Tip Us button entirely. */
 const TIP_URL = 'https://ko-fi.com/sugadev';
 
-function connect(name, pass) {
+/* ---------------- saved login ("remember me") ----------------
+ * The last successful login is stored in localStorage so you don't have to
+ * re-type it and the game can reconnect automatically after the server kicks
+ * you or a reload. "Logout" clears this saved session.
+ * NOTE: the password is stored locally in your browser (like a browser's own
+ * "save password"), so only enable this on a device/account you trust. */
+const SESSION_KEY = 'dbn_session_v1';
+function saveSession() {
+  const s = {
+    name: $('name').value.trim(),
+    email: $('email').value.trim(),
+    pass: $('pass').value,
+    admin: $('adminkey').value.trim(),
+    outfit: pickedOutfit,
+  };
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch {}
+}
+function loadSession() {
+  try { const raw = localStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+let autoReconnect = false; // becomes true after a successful login this page-load
+let reconnectTries = 0;
+
+function connect(name, pass, mode) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const useMode = mode || authMode;
   ws = new WebSocket(`${proto}://${location.host}`);
   ws.onopen = () => ws.send(JSON.stringify({
-    t: authMode === 'register' ? 'register' : 'login',
+    t: useMode === 'register' ? 'register' : 'login',
     name: name || $('name').value.trim(),
     pass: pass || '',
-    email: authMode === 'register' ? $('email').value.trim() : '',
+    email: useMode === 'register' ? $('email').value.trim() : '',
     outfit: pickedOutfit,
     admin: $('adminkey').value.trim(),
   }));
   ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch { } };
   ws.onclose = () => {
-    toast('Connection lost. Refresh to rejoin.', 'bad');
+    if (autoReconnect && reconnectTries < 5) {
+      reconnectTries++;
+      setTimeout(() => {
+        if (autoReconnect) {
+          toast('Reconnecting…', 'bad');
+          connect(null, null, 'login');
+        }
+      }, 1200 * reconnectTries);
+      return;
+    }
+    autoReconnect = false; reconnectTries = 0;
+    toast('Connection lost. Log in again.', 'bad');
     $('login').style.display = 'flex';
   };
 }
@@ -74,11 +112,18 @@ function handle(msg) {
     case 'auth':
       if (msg.ok) {
         selfId = msg.id; selfName = msg.name; isAdmin = !!msg.admin;
+        if (!$('name').value) $('name').value = msg.name;      // refill on autologin
+        if (authMode !== 'login') { authMode = 'login'; $('email').style.display = 'none'; }
+        saveSession();                                       // remember these credentials
+        autoReconnect = true; reconnectTries = 0;
         $('login').style.display = 'none';
         $('hint').style.display = 'block';
         if (document.activeElement) document.activeElement.blur();
         start();
-      } else $('authmsg').textContent = msg.msg;
+      } else {
+        autoReconnect = false;
+        $('authmsg').textContent = msg.msg;
+      }
       break;
     case 'state':
       if (msg.type === 'hub') {
@@ -1115,4 +1160,39 @@ $('rdo').addEventListener('click', () => {
     });
     wrap.appendChild(sw);
   });
+})();
+
+/* ---------------- logout + saved-login auto reconnect ---------------- */
+function doLogout() {
+  clearSession();
+  autoReconnect = false; reconnectTries = 0;
+  try { if (ws) ws.close(); } catch {}
+  selfId = null; selfName = null; isAdmin = false;
+  $('logoutbtn').style.display = 'none';
+  $('login').style.display = 'flex';
+  $('hint').style.display = 'none';
+}
+$('logoutbtn').addEventListener('click', doLogout);
+
+// Toggle the Logout button whenever auth state changes.
+const _origStart = start;
+function start() {
+  if ($('logoutbtn')) $('logoutbtn').style.display = '';
+  return _origStart();
+}
+
+(function autoLogin() {
+  const saved = loadSession();
+  if (!saved || !saved.name) return;           // nothing remembered
+  // Pre-fill the form with the saved login so it's visible if reconnect fails.
+  $('name').value = saved.name || '';
+  $('pass').value = saved.pass || '';
+  $('email').value = saved.email || '';
+  $('adminkey').value = saved.admin || '';
+  if (typeof pickedOutfit === 'number' && saved.outfit != null) pickedOutfit = saved.outfit;
+  authMode = 'login'; $('authmodetoggle').textContent = 'New here? REGISTER';
+  $('join').textContent = 'ENTER THE FOG';
+  $('email').style.display = 'none';
+  autoReconnect = true; reconnectTries = 0;
+  connect(null, null, 'login');                // silent auto login
 })();
